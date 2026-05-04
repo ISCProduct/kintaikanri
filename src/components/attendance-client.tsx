@@ -3,6 +3,14 @@
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
 
+function getLocalDateString() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 const USER_NAME_KEY = "kintai_user_name";
 const USER_NAME_LIST_KEY = "kintai_user_name_list";
 const OTHER_VALUE = "__other__";
@@ -16,7 +24,7 @@ type AttendanceFormState = {
 };
 
 const initialFormState: AttendanceFormState = {
-  workDate: new Date().toISOString().slice(0, 10),
+  workDate: getLocalDateString(),
   startTime: "09:00",
   endTime: "18:00",
   status: "present",
@@ -35,6 +43,7 @@ type AttendanceClientProps = {
 };
 
 export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
+  const [today, setToday] = useState<string>(getLocalDateString());
   const [form, setForm] = useState<AttendanceFormState>(initialFormState);
   const [userName, setUserName] = useState<string>("");
   const [selectValue, setSelectValue] = useState<string>("");
@@ -53,6 +62,11 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       setUserName(saved);
       setSelectValue(saved);
     }
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setToday(getLocalDateString()), 60_000);
+    return () => clearInterval(id);
   }, []);
 
   const knownNames = useMemo(() => {
@@ -92,7 +106,6 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     [],
   );
 
-  const today = new Date().toISOString().slice(0, 10);
   const todayRecord = records.find((record) => record.work_date === today) ?? null;
   const monthPrefix = today.slice(0, 7);
   const monthlyCount = records.filter((record) =>
@@ -166,7 +179,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
   const handleClockIn = async () => {
     const now = new Date();
-    const currentDate = now.toISOString().slice(0, 10);
+    const currentDate = getLocalDateString();
     const currentTime = now.toTimeString().slice(0, 5);
     const payload: AttendanceFormState = {
       ...form,
@@ -182,7 +195,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
   const handleClockOut = async () => {
     const now = new Date();
-    const currentDate = now.toISOString().slice(0, 10);
+    const currentDate = getLocalDateString();
     const currentTime = now.toTimeString().slice(0, 5);
     const payload: AttendanceFormState = {
       ...form,
