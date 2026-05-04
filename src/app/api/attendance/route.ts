@@ -34,6 +34,7 @@ export async function GET() {
 }
 
 type CreateAttendancePayload = {
+  userName?: string;
   workDate?: string;
   startTime?: string;
   endTime?: string;
@@ -44,7 +45,14 @@ type CreateAttendancePayload = {
 export async function POST(request: Request) {
   try {
     const payload = (await request.json()) as CreateAttendancePayload;
-    const { workDate, startTime, endTime, status = "present", note = "" } = payload;
+    const { userName, workDate, startTime, endTime, status = "present", note = "" } = payload;
+
+    if (!userName) {
+      return NextResponse.json(
+        { message: "userName は必須です。" },
+        { status: 400 },
+      );
+    }
 
     if (!workDate || !startTime) {
       return NextResponse.json(
@@ -54,6 +62,7 @@ export async function POST(request: Request) {
     }
 
     const input: AttendanceCreateInput = {
+      userName,
       workDate,
       startTime,
       endTime,

@@ -18,6 +18,7 @@ export function getLocalAttendanceRecordById(id: string) {
 export function createLocalAttendanceRecord(input: AttendanceCreateInput) {
   const record: AttendanceRecord = {
     id: crypto.randomUUID(),
+    user_name: input.userName,
     work_date: input.workDate,
     start_time: input.startTime,
     end_time: input.endTime ?? null,

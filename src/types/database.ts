@@ -4,6 +4,7 @@ export type Database = {
       attendance_records: {
         Row: {
           id: string;
+          user_name: string;
           work_date: string;
           start_time: string;
           end_time: string | null;
@@ -13,6 +14,7 @@ export type Database = {
         };
         Insert: {
           id?: string;
+          user_name: string;
           work_date: string;
           start_time: string;
           end_time?: string | null;
@@ -22,6 +24,7 @@ export type Database = {
         };
         Update: {
           id?: string;
+          user_name?: string;
           work_date?: string;
           start_time?: string;
           end_time?: string | null;

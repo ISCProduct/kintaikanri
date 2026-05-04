@@ -13,6 +13,7 @@ import {
 } from "@/server/local-attendance-store";
 
 export type AttendanceCreateInput = {
+  userName: string;
   workDate: string;
   startTime: string;
   endTime?: string;
@@ -68,6 +69,7 @@ export async function createAttendanceRecord(input: AttendanceCreateInput) {
 
   const supabase = createSupabaseServerClient();
   const insertPayload: Database["public"]["Tables"]["attendance_records"]["Insert"] = {
+    user_name: input.userName,
     work_date: input.workDate,
     start_time: input.startTime,
     end_time: input.endTime || null,

@@ -1,7 +1,11 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, useEffect, type FormEvent } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
+
+const USER_NAME_KEY = "kintai_user_name";
+const USER_NAME_LIST_KEY = "kintai_user_name_list";
+const OTHER_VALUE = "__other__";
 
 type AttendanceFormState = {
   workDate: string;
@@ -32,11 +36,52 @@ type AttendanceClientProps = {
 
 export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [form, setForm] = useState<AttendanceFormState>(initialFormState);
+  const [userName, setUserName] = useState<string>("");
+  const [selectValue, setSelectValue] = useState<string>("");
+  const [customNames, setCustomNames] = useState<string[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>(initialRecords);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
   const [activeTab, setActiveTab] = useState<"stamp" | "history">("stamp");
+
+  useEffect(() => {
+    const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
+    const savedList: string[] = JSON.parse(localStorage.getItem(USER_NAME_LIST_KEY) ?? "[]");
+    setCustomNames(savedList);
+    if (saved) {
+      setUserName(saved);
+      setSelectValue(saved);
+    }
+  }, []);
+
+  const knownNames = useMemo(() => {
+    const fromRecords = records.map((r) => r.user_name).filter(Boolean);
+    return Array.from(new Set([...customNames, ...fromRecords])).sort((a, b) =>
+      a.localeCompare(b, "ja"),
+    );
+  }, [records, customNames]);
+
+  const handleSelectChange = (value: string) => {
+    if (value === OTHER_VALUE) {
+      setSelectValue(OTHER_VALUE);
+      setUserName("");
+    } else {
+      setSelectValue(value);
+      setUserName(value);
+      localStorage.setItem(USER_NAME_KEY, value);
+    }
+  };
+
+  const handleCustomNameCommit = (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const updated = Array.from(new Set([...customNames, trimmed]));
+    setCustomNames(updated);
+    localStorage.setItem(USER_NAME_LIST_KEY, JSON.stringify(updated));
+    localStorage.setItem(USER_NAME_KEY, trimmed);
+    setSelectValue(trimmed);
+  };
 
   const statusOptions = useMemo(
     () =>
@@ -58,6 +103,11 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   ).length;
 
   const submitAttendance = async (payload: AttendanceFormState) => {
+    if (!userName.trim()) {
+      setMessage("氏名を選択または入力してください。");
+      return;
+    }
+
     setIsSubmitting(true);
     setMessage("");
 
@@ -66,7 +116,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...payload, userName: userName.trim() }),
     });
 
     const data = (await response.json()) as {
@@ -151,9 +201,38 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
           <h1>勤怠管理</h1>
           <p className="description">日次の打刻と月次の勤怠をこの画面で管理します。</p>
         </div>
-        <button className="sub-button" onClick={() => void reloadRecords()}>
-          {isRefreshing ? "更新中..." : "最新に更新"}
-        </button>
+        <div className="header-right">
+          <label className="field field-inline">
+            氏名
+            <select
+              value={selectValue}
+              onChange={(event) => handleSelectChange(event.target.value)}
+            >
+              <option value="" disabled>選択してください</option>
+              {knownNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+              <option value={OTHER_VALUE}>＋ 新しい名前を追加</option>
+            </select>
+          </label>
+          {selectValue === OTHER_VALUE && (
+            <input
+              type="text"
+              className="name-input"
+              value={userName}
+              onChange={(event) => setUserName(event.target.value)}
+              onBlur={(event) => handleCustomNameCommit(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleCustomNameCommit(userName);
+              }}
+              placeholder="山田 太郎"
+              autoFocus
+            />
+          )}
+          <button className="sub-button" onClick={() => void reloadRecords()}>
+            {isRefreshing ? "更新中..." : "最新に更新"}
+          </button>
+        </div>
       </section>
 
       <section className="summary-grid">
@@ -304,6 +383,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
             <table>
               <thead>
                 <tr>
+                  <th>氏名</th>
                   <th>勤務日</th>
                   <th>開始</th>
                   <th>終了</th>
@@ -314,6 +394,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               <tbody>
                 {records.map((record) => (
                   <tr key={record.id}>
+                    <td>{record.user_name}</td>
                     <td>{record.work_date}</td>
                     <td>{record.start_time}</td>
                     <td>{record.end_time ?? "-"}</td>
