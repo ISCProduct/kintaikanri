@@ -502,3 +502,22 @@ th {
   color: #64748b;
   padding: 0.25rem 0;
 }
+
+.summary-grid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.summary-sub {
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.overtime-warn {
+  color: #c2410c;
+}
+
+@media (max-width: 900px) {
+  .summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

@@ -12,6 +12,25 @@ function getLocalDateString() {
 }
 
 const USER_NAME_KEY = "kintai_user_name";
+const STANDARD_WORK_MINUTES = 8 * 60;
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
+  return h * 60 + m;
+}
+
+function formatMinutes(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m === 0 ? `${h}h` : `${h}h${m}m`;
+}
+
+function calcWork(start: string, end: string | null): { work: number; overtime: number } {
+  if (!end) return { work: 0, overtime: 0 };
+  const work = Math.max(0, timeToMinutes(end) - timeToMinutes(start));
+  const overtime = Math.max(0, work - STANDARD_WORK_MINUTES);
+  return { work, overtime };
+}
 const USER_NAME_LIST_KEY = "kintai_user_name_list";
 const OTHER_VALUE = "__other__";
 
@@ -108,12 +127,11 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
   const todayRecord = records.find((record) => record.work_date === today) ?? null;
   const monthPrefix = today.slice(0, 7);
-  const monthlyCount = records.filter((record) =>
-    record.work_date.startsWith(monthPrefix),
-  ).length;
-  const remoteDays = records.filter(
-    (record) => record.status === "remote" && record.work_date.startsWith(monthPrefix),
-  ).length;
+  const monthlyRecords = records.filter((r) => r.work_date.startsWith(monthPrefix));
+  const monthlyCount = monthlyRecords.length;
+  const remoteDays = monthlyRecords.filter((r) => r.status === "remote").length;
+  const monthlyWorkMinutes = monthlyRecords.reduce((sum, r) => sum + calcWork(r.start_time, r.end_time).work, 0);
+  const monthlyOvertimeMinutes = monthlyRecords.reduce((sum, r) => sum + calcWork(r.start_time, r.end_time).overtime, 0);
 
   const postAttendance = async (body: Record<string, unknown>): Promise<AttendanceRecord | null> => {
     const response = await fetch("/api/attendance", {
@@ -265,10 +283,28 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
         <article className="summary-card">
           <span className="summary-label">本日の勤務状態</span>
           <strong>{todayRecord ? statusLabels[todayRecord.status] : "未打刻"}</strong>
+          {todayRecord?.start_time && (
+            <span className="summary-sub">
+              {todayRecord.start_time} 〜 {todayRecord.end_time ?? "打刻中"}
+              {todayRecord.end_time && (
+                <> （{formatMinutes(calcWork(todayRecord.start_time, todayRecord.end_time).work)}）</>
+              )}
+            </span>
+          )}
         </article>
         <article className="summary-card">
           <span className="summary-label">当月の打刻日数</span>
           <strong>{monthlyCount}日</strong>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">当月の総勤務時間</span>
+          <strong>{formatMinutes(monthlyWorkMinutes)}</strong>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">当月の残業時間</span>
+          <strong className={monthlyOvertimeMinutes > 0 ? "overtime-warn" : ""}>
+            {formatMinutes(monthlyOvertimeMinutes)}
+          </strong>
         </article>
         <article className="summary-card">
           <span className="summary-label">当月のリモート勤務</span>
@@ -413,23 +449,32 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                   <th>勤務日</th>
                   <th>開始</th>
                   <th>終了</th>
+                  <th>勤務時間</th>
+                  <th>残業時間</th>
                   <th>区分</th>
                   <th>備考</th>
                 </tr>
               </thead>
               <tbody>
-                {records.map((record) => (
+                {records.map((record) => {
+                  const { work, overtime } = calcWork(record.start_time, record.end_time);
+                  return (
                   <tr key={record.id}>
                     <td>{record.user_name}</td>
                     <td>{record.work_date}</td>
                     <td>{record.start_time}</td>
                     <td>{record.end_time ?? "-"}</td>
+                    <td>{record.end_time ? formatMinutes(work) : "-"}</td>
+                    <td className={overtime > 0 ? "overtime-warn" : ""}>
+                      {record.end_time ? formatMinutes(overtime) : "-"}
+                    </td>
                     <td>
                       <span className="status-chip">{statusLabels[record.status]}</span>
                     </td>
                     <td>{record.note ?? "-"}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
