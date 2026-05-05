@@ -301,3 +301,35 @@ export async function deleteAttendanceRecord(id: string) {
 
 // 旧 createAttendanceRecord は upsert へ委譲（後方互換）
 export const createAttendanceRecord = upsertAttendanceRecord;
+
+// end_time が NULL で work_date が今日より前のレコード（退勤漏れ）
+export async function listMissingClockOuts(userName?: string): Promise<AttendanceRecord[]> {
+  if (hasDatabaseUrl()) {
+    const where = userName
+      ? "where end_time is null and work_date < current_date and user_name = $1 and status in ('present', 'remote')"
+      : "where end_time is null and work_date < current_date and status in ('present', 'remote')";
+    const { rows } = await getPgPool().query<AttendanceRecord>(
+      `select ${SELECT_COLS} from attendance_records ${where} order by work_date desc`,
+      userName ? [userName] : [],
+    );
+    return rows;
+  }
+  if (shouldUseSupabase()) {
+    const today = new Date().toISOString().slice(0, 10);
+    let q = createSupabaseServerClient()
+      .from("attendance_records")
+      .select("*")
+      .is("end_time", null)
+      .lt("work_date", today)
+      .in("status", ["present", "remote"])
+      .order("work_date", { ascending: false });
+    if (userName) q = q.eq("user_name", userName);
+    const { data } = await q;
+    return (data ?? []) as AttendanceRecord[];
+  }
+  // ローカルストアは簡易対応
+  const today = new Date().toISOString().slice(0, 10);
+  return listLocalAttendanceRecords(90).filter(
+    (r) => !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status ?? ""),
+  );
+}

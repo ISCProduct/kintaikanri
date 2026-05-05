@@ -136,6 +136,9 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   );
 
   const todayRecord = records.find((record) => record.work_date === today) ?? null;
+  const missingClockOuts = records.filter(
+    (r) => !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status),
+  );
   const monthPrefix = today.slice(0, 7);
   const monthlyRecords = records.filter((r) => r.work_date.startsWith(monthPrefix));
   const monthlyCount = monthlyRecords.length;
@@ -320,6 +323,15 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
           <span className="summary-label">当月のリモート勤務</span>
           <strong>{remoteDays}日</strong>
         </article>
+        {missingClockOuts.length > 0 && (
+          <article className="summary-card summary-card-warn">
+            <span className="summary-label">退勤漏れ</span>
+            <strong className="overtime-warn">{missingClockOuts.length}件</strong>
+            <span className="summary-sub">
+              最新: {missingClockOuts[0].work_date}
+            </span>
+          </article>
+        )}
         <article className="summary-card">
           <span className="summary-label">有給残日数</span>
           <strong>{leaveBalance !== null ? `${leaveBalance.remaining}日` : "-"}</strong>

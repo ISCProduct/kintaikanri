@@ -516,6 +516,23 @@ th {
   color: #c2410c;
 }
 
+.summary-card-warn {
+  border-color: #fca5a5;
+  background: #fff7f7;
+}
+
+.badge-warn {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.15rem 0.5rem;
+  background: #fca5a5;
+  color: #7f1d1d;
+  border-radius: 99px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
 @media (max-width: 900px) {
   .summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

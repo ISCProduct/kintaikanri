@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { OvertimeRequest, OvertimeStatus } from "@/types/overtime";
+import type { AttendanceRecord } from "@/types/attendance";
 
 const USER_NAME_KEY = "kintai_user_name";
 
@@ -35,10 +36,15 @@ export function AdminClient({ initialRequests }: AdminClientProps) {
   const [message, setMessage] = useState("");
   const [exportMonth, setExportMonth] = useState(getThisMonth());
   const [exportUser, setExportUser] = useState("");
+  const [missingRecords, setMissingRecords] = useState<AttendanceRecord[]>([]);
 
   useEffect(() => {
     const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
     if (saved) setAdminName(saved);
+    void fetch("/api/attendance/missing")
+      .then((r) => r.json())
+      .then((d: { records?: AttendanceRecord[] }) => setMissingRecords(d.records ?? []))
+      .catch(() => undefined);
   }, []);
 
   const handleAction = async (id: string, status: "approved" | "rejected") => {
@@ -110,6 +116,38 @@ export function AdminClient({ initialRequests }: AdminClientProps) {
           </button>
         </div>
       </section>
+
+      {missingRecords.length > 0 && (
+        <section className="card">
+          <h2 className="section-title">
+            退勤漏れ一覧
+            <span className="badge-warn">{missingRecords.length}件</span>
+          </h2>
+          <p className="description">出勤打刻のみで退勤打刻がないレコードです。本人に確認・修正申請を促してください。</p>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>氏名</th>
+                  <th>勤務日</th>
+                  <th>出勤時刻</th>
+                  <th>区分</th>
+                </tr>
+              </thead>
+              <tbody>
+                {missingRecords.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.user_name}</td>
+                    <td>{r.work_date}</td>
+                    <td>{r.start_time}</td>
+                    <td>{r.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="card">
         <h2 className="section-title">CSVエクスポート</h2>
