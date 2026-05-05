@@ -192,3 +192,45 @@ export async function grantPaidLeave(
 export async function getGrantDays(): Promise<number> {
   return parseFloat(await getRuleValue("overtime_leave_grant_days", "1"));
 }
+
+export async function recordVacationUsed(userName: string, workDate: string): Promise<void> {
+  const reason = `${workDate} 有給休暇取得`;
+  if (hasDatabaseUrl()) {
+    await getPgPool().query(
+      `insert into paid_leave_balances (user_name, granted_days, used_days, reason, target_month)
+       values ($1, 0, 1, $2, $3)`,
+      [userName, reason, workDate.slice(0, 7)],
+    );
+    return;
+  }
+  await createSupabaseServerClient()
+    .from("paid_leave_balances")
+    .insert({ user_name: userName, granted_days: 0, used_days: 1, reason, target_month: workDate.slice(0, 7) });
+}
+
+export async function getUserPaidLeaveBalance(userName: string): Promise<PaidLeaveSummary | null> {
+  if (hasDatabaseUrl()) {
+    const { rows } = await getPgPool().query<PaidLeaveSummary>(`
+      select user_name,
+             coalesce(sum(granted_days), 0) as total_granted,
+             coalesce(sum(used_days), 0)    as total_used,
+             coalesce(sum(granted_days), 0) - coalesce(sum(used_days), 0) as remaining
+      from paid_leave_balances
+      where user_name = $1
+      group by user_name
+    `, [userName]);
+    return rows[0] ?? null;
+  }
+  const { data } = await createSupabaseServerClient()
+    .from("paid_leave_balances")
+    .select("user_name, granted_days, used_days")
+    .eq("user_name", userName);
+  if (!data || data.length === 0) return null;
+  const summary: PaidLeaveSummary = { user_name: userName, total_granted: 0, total_used: 0, remaining: 0 };
+  for (const row of data as PaidLeaveBalance[]) {
+    summary.total_granted += Number(row.granted_days);
+    summary.total_used += Number(row.used_days);
+    summary.remaining += Number(row.granted_days) - Number(row.used_days);
+  }
+  return summary;
+}

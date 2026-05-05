@@ -7,6 +7,7 @@ import {
   listAttendanceRecords,
 } from "@/server/attendance-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
+import { recordVacationUsed } from "@/server/rules-service";
 
 export async function GET() {
   try {
@@ -86,6 +87,9 @@ export async function POST(request: Request) {
       note: payload.note,
     });
     if (error) return NextResponse.json({ message: error.message }, { status: 500 });
+    if (payload.status === "vacation") {
+      await recordVacationUsed(userName, workDate);
+    }
     return NextResponse.json({ record: data }, { status: 201 });
   } catch (error) {
     if (isSupabaseConfigurationError(error)) {

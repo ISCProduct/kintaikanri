@@ -4,13 +4,21 @@ import {
   getPaidLeaveSummaries,
   grantPaidLeave,
   getGrantDays,
+  getUserPaidLeaveBalance,
 } from "@/server/rules-service";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const month = searchParams.get("month");
+  const userName = searchParams.get("userName");
 
   try {
+    // ユーザー個人の残日数取得
+    if (userName && !month) {
+      const balance = await getUserPaidLeaveBalance(userName);
+      return NextResponse.json({ balance });
+    }
+
     const [summaries, overtime] = await Promise.all([
       getPaidLeaveSummaries(),
       month ? getMonthlyOvertimeSummary(month) : Promise.resolve([]),

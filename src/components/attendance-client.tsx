@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
+import type { PaidLeaveSummary } from "@/types/rules";
 
 function getLocalDateString() {
   const d = new Date();
@@ -72,6 +73,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
   const [activeTab, setActiveTab] = useState<"stamp" | "history">("stamp");
+  const [leaveBalance, setLeaveBalance] = useState<PaidLeaveSummary | null>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
@@ -87,6 +89,14 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     const id = setInterval(() => setToday(getLocalDateString()), 60_000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    if (!userName) { setLeaveBalance(null); return; }
+    void fetch(`/api/paid-leave?userName=${encodeURIComponent(userName)}`)
+      .then((r) => r.json())
+      .then((d: { balance?: PaidLeaveSummary }) => setLeaveBalance(d.balance ?? null))
+      .catch(() => setLeaveBalance(null));
+  }, [userName]);
 
   const knownNames = useMemo(() => {
     const fromRecords = records.map((r) => r.user_name).filter(Boolean);
@@ -309,6 +319,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
         <article className="summary-card">
           <span className="summary-label">当月のリモート勤務</span>
           <strong>{remoteDays}日</strong>
+        </article>
+        <article className="summary-card">
+          <span className="summary-label">有給残日数</span>
+          <strong>{leaveBalance !== null ? `${leaveBalance.remaining}日` : "-"}</strong>
+          {leaveBalance && (
+            <span className="summary-sub">付与: {leaveBalance.total_granted}日 / 取得: {leaveBalance.total_used}日</span>
+          )}
         </article>
       </section>
 
