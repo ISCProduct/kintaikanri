@@ -73,6 +73,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
   const [activeTab, setActiveTab] = useState<"stamp" | "history">("stamp");
+  const [showManualForm, setShowManualForm] = useState(false);
   const [leaveBalance, setLeaveBalance] = useState<PaidLeaveSummary | null>(null);
 
   useEffect(() => {
@@ -360,14 +361,14 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
         </div>
 
         {activeTab === "stamp" ? (
-          <div className="stamp-layout">
-            <div className="stamp-panel">
+          <div>
+            <div className="stamp-panel stamp-panel-main">
               <p className="stamp-title">本日の打刻</p>
               <p className="stamp-date">{today}</p>
               <div className="stamp-actions">
                 <button
                   type="button"
-                  className="button ghost-button"
+                  className="button ghost-button stamp-btn"
                   onClick={() => void handleClockIn()}
                   disabled={isSubmitting}
                 >
@@ -375,7 +376,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                 </button>
                 <button
                   type="button"
-                  className="button ghost-button"
+                  className="button ghost-button stamp-btn"
                   onClick={() => void handleClockOut()}
                   disabled={isSubmitting}
                 >
@@ -384,88 +385,85 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               </div>
             </div>
 
-            <form className="form-grid" onSubmit={handleSubmit}>
-              <label className="field">
-                勤務日
-                <input
-                  type="date"
-                  value={form.workDate}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      workDate: event.target.value,
-                    }))
-                  }
-                  required
-                />
-              </label>
-
-              <label className="field">
-                開始時刻
-                <input
-                  type="time"
-                  value={form.startTime}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      startTime: event.target.value,
-                    }))
-                  }
-                  required
-                />
-              </label>
-
-              <label className="field">
-                終了時刻
-                <input
-                  type="time"
-                  value={form.endTime}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      endTime: event.target.value,
-                    }))
-                  }
-                />
-              </label>
-
-              <label className="field">
-                勤務区分
-                <select
-                  value={form.status}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      status: event.target.value as AttendanceStatus,
-                    }))
-                  }
-                >
-                  {statusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="field field-full">
-                備考
-                <textarea
-                  value={form.note}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      note: event.target.value,
-                    }))
-                  }
-                  rows={3}
-                />
-              </label>
-
-              <button className="button" type="submit" disabled={isSubmitting}>
-                {isSubmitting ? "保存中..." : "手入力で保存"}
+            <div className="manual-form-toggle">
+              <button
+                type="button"
+                className="sub-button"
+                onClick={() => setShowManualForm((v) => !v)}
+              >
+                {showManualForm ? "▲ 手入力を閉じる" : "▼ 手入力で修正・休暇登録"}
               </button>
-            </form>
+            </div>
+
+            {showManualForm && (
+              <form className="form-grid manual-form" onSubmit={handleSubmit}>
+                <label className="field">
+                  勤務日
+                  <input
+                    type="date"
+                    value={form.workDate}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, workDate: event.target.value }))
+                    }
+                    required
+                  />
+                </label>
+
+                <label className="field">
+                  開始時刻
+                  <input
+                    type="time"
+                    value={form.startTime}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, startTime: event.target.value }))
+                    }
+                    required
+                  />
+                </label>
+
+                <label className="field">
+                  終了時刻
+                  <input
+                    type="time"
+                    value={form.endTime}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, endTime: event.target.value }))
+                    }
+                  />
+                </label>
+
+                <label className="field">
+                  勤務区分
+                  <select
+                    value={form.status}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, status: event.target.value as AttendanceStatus }))
+                    }
+                  >
+                    {statusOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="field field-full">
+                  備考
+                  <textarea
+                    value={form.note}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, note: event.target.value }))
+                    }
+                    rows={3}
+                  />
+                </label>
+
+                <button className="button" type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? "保存中..." : "手入力で保存"}
+                </button>
+              </form>
+            )}
           </div>
         ) : records.length === 0 ? (
           <p className="description">まだデータがありません。</p>

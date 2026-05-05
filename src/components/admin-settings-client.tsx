@@ -17,12 +17,12 @@ type Props = {
 };
 
 export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
-  const [rules, setRules] = useState<SystemRule[]>(initialRules);
+  const [rules, setRules] = useState<SystemRule[]>(initialRules.filter((r) => r.key !== "admin_pin"));
   const [summaries, setSummaries] = useState<PaidLeaveSummary[]>(initialSummaries);
   const [overtime, setOvertime] = useState<MonthlyOvertimeSummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(getThisMonth());
   const [editValues, setEditValues] = useState<Record<string, string>>(
-    Object.fromEntries(initialRules.map((r) => [r.key, r.value])),
+    Object.fromEntries(initialRules.filter((r) => r.key !== "admin_pin").map((r) => [r.key, r.value])),
   );
   const [saving, setSaving] = useState(false);
   const [granting, setGranting] = useState<string | null>(null);

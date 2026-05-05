@@ -205,6 +205,18 @@ h1 {
   gap: 0.65rem;
 }
 
+.stamp-panel-main {
+  border: 2px solid #c7d2fe;
+  border-radius: 16px;
+  padding: 2rem 1.5rem;
+  background: #f5f7ff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
 .stamp-title {
   color: #334155;
   font-size: 0.9rem;
@@ -219,6 +231,30 @@ h1 {
 .stamp-actions {
   display: grid;
   gap: 0.55rem;
+}
+
+.stamp-btn {
+  font-size: 1.1rem;
+  padding: 0.9rem 2.5rem;
+  font-weight: 700;
+  min-width: 140px;
+}
+
+.stamp-panel-main .stamp-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.manual-form-toggle {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.manual-form {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
 }
 
 .form-grid {
