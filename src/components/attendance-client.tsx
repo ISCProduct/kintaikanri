@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect, type FormEvent } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
 import type { PaidLeaveSummary } from "@/types/rules";
+import { AttendanceCalendar } from "@/components/attendance-calendar";
 
 function getLocalDateString() {
   const d = new Date();
@@ -72,7 +73,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [message, setMessage] = useState<string>("");
-  const [activeTab, setActiveTab] = useState<"stamp" | "history">("stamp");
+  const [activeTab, setActiveTab] = useState<"stamp" | "calendar" | "history">("stamp");
   const [showManualForm, setShowManualForm] = useState(false);
   const [leaveBalance, setLeaveBalance] = useState<PaidLeaveSummary | null>(null);
 
@@ -364,18 +365,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
       <section className="card card-tight">
         <div className="tab-row">
-          <button
-            type="button"
-            className={activeTab === "stamp" ? "tab tab-active" : "tab"}
-            onClick={() => setActiveTab("stamp")}
-          >
+          <button type="button" className={activeTab === "stamp" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("stamp")}>
             打刻
           </button>
-          <button
-            type="button"
-            className={activeTab === "history" ? "tab tab-active" : "tab"}
-            onClick={() => setActiveTab("history")}
-          >
+          <button type="button" className={activeTab === "calendar" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("calendar")}>
+            カレンダー
+          </button>
+          <button type="button" className={activeTab === "history" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("history")}>
             勤怠履歴
           </button>
         </div>
@@ -494,6 +490,8 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               </form>
             )}
           </div>
+        ) : activeTab === "calendar" ? (
+          <AttendanceCalendar userName={userName} />
         ) : records.length === 0 ? (
           <p className="description">まだデータがありません。</p>
         ) : (

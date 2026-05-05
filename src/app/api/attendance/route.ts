@@ -11,9 +11,11 @@ import { isSupabaseConfigurationError } from "@/server/supabase-server";
 import { recordVacationUsed } from "@/server/rules-service";
 import { isMonthClosed } from "@/server/closing-service";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const month = searchParams.get("month") ?? undefined;
   try {
-    const { data, error } = await listAttendanceRecords(31);
+    const { data, error } = await listAttendanceRecords(31, month);
     if (error) {
       return NextResponse.json({ message: error.message }, { status: 500 });
     }

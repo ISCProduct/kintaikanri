@@ -174,9 +174,18 @@ export async function upsertAttendanceRecord(
 
 // ── 以下は従来どおり ──────────────────────────────────────────────────────
 
-export async function listAttendanceRecords(limit = 31) {
+export async function listAttendanceRecords(limit = 31, month?: string) {
   if (hasDatabaseUrl()) {
     const pool = getPgPool();
+    if (month) {
+      const { rows } = await pool.query<AttendanceRecord>(
+        `select ${SELECT_COLS} from attendance_records
+         where to_char(work_date, 'YYYY-MM') = $1
+         order by work_date asc`,
+        [month],
+      );
+      return { data: rows, error: null };
+    }
     const { rows } = await pool.query<AttendanceRecord>(
       `select ${SELECT_COLS} from attendance_records
        order by work_date desc limit $1`,
@@ -190,6 +199,14 @@ export async function listAttendanceRecords(limit = 31) {
   }
 
   const supabase = createSupabaseServerClient();
+  if (month) {
+    return supabase
+      .from("attendance_records")
+      .select("*")
+      .gte("work_date", `${month}-01`)
+      .lte("work_date", `${month}-31`)
+      .order("work_date", { ascending: true });
+  }
   return supabase
     .from("attendance_records")
     .select("*")
