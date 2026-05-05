@@ -8,6 +8,7 @@ import {
 } from "@/server/attendance-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
 import { recordVacationUsed } from "@/server/rules-service";
+import { isMonthClosed } from "@/server/closing-service";
 
 export async function GET() {
   try {
@@ -48,6 +49,11 @@ export async function POST(request: Request) {
     }
     if (!workDate) {
       return NextResponse.json({ message: "workDate は必須です。" }, { status: 400 });
+    }
+
+    const month = workDate.slice(0, 7);
+    if (await isMonthClosed(month)) {
+      return NextResponse.json({ message: `${month} は締め済みのため編集できません。` }, { status: 403 });
     }
 
     if (action === "clockin") {

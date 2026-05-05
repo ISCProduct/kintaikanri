@@ -64,6 +64,12 @@ export type Database = {
         };
         Relationships: [];
       };
+      monthly_closings: {
+        Row: { month: string; closed_by: string; closed_at: string };
+        Insert: { month: string; closed_by: string; closed_at?: string };
+        Update: { month?: string; closed_by?: string; closed_at?: string };
+        Relationships: [];
+      };
       correction_requests: {
         Row: {
           id: string;

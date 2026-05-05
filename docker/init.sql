@@ -51,6 +51,13 @@ create table if not exists overtime_requests (
   updated_at timestamptz not null default now()
 );
 
+-- 月次締め管理
+create table if not exists monthly_closings (
+  month text primary key,  -- 'YYYY-MM'
+  closed_by text not null,
+  closed_at timestamptz not null default now()
+);
+
 -- 勤怠修正申請
 create table if not exists correction_requests (
   id uuid primary key default gen_random_uuid(),
