@@ -1,6 +1,48 @@
 export type Database = {
   public: {
     Tables: {
+      overtime_requests: {
+        Row: {
+          id: string;
+          user_name: string;
+          request_date: string;
+          planned_start: string;
+          planned_end: string;
+          reason: string;
+          status: "pending" | "approved" | "rejected";
+          approver_name: string | null;
+          approver_comment: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_name: string;
+          request_date: string;
+          planned_start: string;
+          planned_end: string;
+          reason: string;
+          status?: "pending" | "approved" | "rejected";
+          approver_name?: string | null;
+          approver_comment?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_name?: string;
+          request_date?: string;
+          planned_start?: string;
+          planned_end?: string;
+          reason?: string;
+          status?: "pending" | "approved" | "rejected";
+          approver_name?: string | null;
+          approver_comment?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       attendance_records: {
         Row: {
           id: string;
