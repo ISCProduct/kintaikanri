@@ -7,6 +7,7 @@ const navItems = [
   { href: "/", label: "勤怠打刻" },
   { href: "/overtime", label: "残業申請" },
   { href: "/admin", label: "管理" },
+  { href: "/admin/settings", label: "設定" },
 ];
 
 export function GlobalNav() {

@@ -1,6 +1,27 @@
 export type Database = {
   public: {
     Tables: {
+      system_rules: {
+        Row: { key: string; value: string; label: string; updated_at: string };
+        Insert: { key: string; value: string; label: string; updated_at?: string };
+        Update: { key?: string; value?: string; label?: string; updated_at?: string };
+        Relationships: [];
+      };
+      paid_leave_balances: {
+        Row: {
+          id: string; user_name: string; granted_days: number; used_days: number;
+          reason: string | null; target_month: string | null; created_at: string;
+        };
+        Insert: {
+          id?: string; user_name: string; granted_days: number; used_days?: number;
+          reason?: string | null; target_month?: string | null; created_at?: string;
+        };
+        Update: {
+          id?: string; user_name?: string; granted_days?: number; used_days?: number;
+          reason?: string | null; target_month?: string | null; created_at?: string;
+        };
+        Relationships: [];
+      };
       overtime_requests: {
         Row: {
           id: string;
