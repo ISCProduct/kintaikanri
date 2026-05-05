@@ -8,7 +8,8 @@ create table if not exists attendance_records (
   end_time time,
   status text not null check (status in ('present', 'remote', 'vacation', 'holiday')),
   note text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique (user_name, work_date)
 );
 
 create table if not exists overtime_requests (

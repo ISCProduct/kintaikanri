@@ -115,40 +115,51 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     (record) => record.status === "remote" && record.work_date.startsWith(monthPrefix),
   ).length;
 
+  const postAttendance = async (body: Record<string, unknown>): Promise<AttendanceRecord | null> => {
+    const response = await fetch("/api/attendance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = (await response.json()) as { record?: AttendanceRecord; message?: string };
+    if (!response.ok) {
+      setMessage(data.message ?? "保存に失敗しました。");
+      return null;
+    }
+    return data.record ?? null;
+  };
+
+  const upsertRecord = (record: AttendanceRecord) => {
+    setRecords((current) => {
+      const exists = current.some((r) => r.id === record.id);
+      if (exists) return current.map((r) => (r.id === record.id ? record : r));
+      return [record, ...current];
+    });
+  };
+
   const submitAttendance = async (payload: AttendanceFormState) => {
     if (!userName.trim()) {
       setMessage("氏名を選択または入力してください。");
       return;
     }
-
     setIsSubmitting(true);
     setMessage("");
 
-    const response = await fetch("/api/attendance", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ...payload, userName: userName.trim() }),
+    const record = await postAttendance({
+      action: "manual",
+      userName: userName.trim(),
+      workDate: payload.workDate,
+      startTime: payload.startTime,
+      endTime: payload.endTime || undefined,
+      status: payload.status,
+      note: payload.note,
     });
 
-    const data = (await response.json()) as {
-      record?: AttendanceRecord;
-      message?: string;
-    };
-
-    if (!response.ok) {
-      setMessage(data.message ?? "保存に失敗しました。");
-      setIsSubmitting(false);
-      return;
+    if (record) {
+      upsertRecord(record);
+      setMessage("勤怠データを保存しました。");
+      setForm((current) => ({ ...current, note: "" }));
     }
-
-    const created = data.record;
-    if (created) {
-      setRecords((current) => [created, ...current]);
-    }
-    setMessage("勤怠データを保存しました。");
-    setForm((current) => ({ ...current, note: "" }));
     setIsSubmitting(false);
   };
 
@@ -178,33 +189,35 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   };
 
   const handleClockIn = async () => {
+    if (!userName.trim()) { setMessage("氏名を選択または入力してください。"); return; }
+    setIsSubmitting(true);
+    setMessage("");
     const now = new Date();
-    const currentDate = getLocalDateString();
-    const currentTime = now.toTimeString().slice(0, 5);
-    const payload: AttendanceFormState = {
-      ...form,
-      workDate: currentDate,
-      startTime: currentTime,
-      endTime: "",
+    const record = await postAttendance({
+      action: "clockin",
+      userName: userName.trim(),
+      workDate: getLocalDateString(),
+      startTime: now.toTimeString().slice(0, 5),
       status: "present",
       note: "出勤打刻",
-    };
-    setForm(payload);
-    await submitAttendance(payload);
+    });
+    if (record) { upsertRecord(record); setMessage("出勤を記録しました。"); }
+    setIsSubmitting(false);
   };
 
   const handleClockOut = async () => {
+    if (!userName.trim()) { setMessage("氏名を選択または入力してください。"); return; }
+    setIsSubmitting(true);
+    setMessage("");
     const now = new Date();
-    const currentDate = getLocalDateString();
-    const currentTime = now.toTimeString().slice(0, 5);
-    const payload: AttendanceFormState = {
-      ...form,
-      workDate: currentDate,
-      endTime: currentTime,
-      note: "退勤打刻",
-    };
-    setForm(payload);
-    await submitAttendance(payload);
+    const record = await postAttendance({
+      action: "clockout",
+      userName: userName.trim(),
+      workDate: getLocalDateString(),
+      endTime: now.toTimeString().slice(0, 5),
+    });
+    if (record) { upsertRecord(record); setMessage("退勤を記録しました。"); }
+    setIsSubmitting(false);
   };
 
   return (
