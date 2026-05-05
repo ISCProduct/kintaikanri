@@ -64,6 +64,54 @@ export type Database = {
         };
         Relationships: [];
       };
+      correction_requests: {
+        Row: {
+          id: string;
+          user_name: string;
+          target_date: string;
+          before_start: string | null;
+          before_end: string | null;
+          after_start: string;
+          after_end: string | null;
+          reason: string;
+          status: "pending" | "approved" | "rejected";
+          approver_name: string | null;
+          approver_comment: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_name: string;
+          target_date: string;
+          before_start?: string | null;
+          before_end?: string | null;
+          after_start: string;
+          after_end?: string | null;
+          reason: string;
+          status?: "pending" | "approved" | "rejected";
+          approver_name?: string | null;
+          approver_comment?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_name?: string;
+          target_date?: string;
+          before_start?: string | null;
+          before_end?: string | null;
+          after_start?: string;
+          after_end?: string | null;
+          reason?: string;
+          status?: "pending" | "approved" | "rejected";
+          approver_name?: string | null;
+          approver_comment?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       attendance_records: {
         Row: {
           id: string;

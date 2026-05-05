@@ -49,3 +49,21 @@ create table if not exists overtime_requests (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- 勤怠修正申請
+create table if not exists correction_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_name text not null,
+  target_date date not null,
+  before_start time,
+  before_end time,
+  after_start time not null,
+  after_end time,
+  reason text not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'approved', 'rejected')),
+  approver_name text,
+  approver_comment text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
