@@ -21,6 +21,11 @@ type AdminClientProps = {
   initialRequests: OvertimeRequest[];
 };
 
+function getThisMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export function AdminClient({ initialRequests }: AdminClientProps) {
   const [requests, setRequests] = useState<OvertimeRequest[]>(initialRequests);
   const [adminName, setAdminName] = useState("");
@@ -28,6 +33,8 @@ export function AdminClient({ initialRequests }: AdminClientProps) {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [commentMap, setCommentMap] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
+  const [exportMonth, setExportMonth] = useState(getThisMonth());
+  const [exportUser, setExportUser] = useState("");
 
   useEffect(() => {
     const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
@@ -75,6 +82,12 @@ export function AdminClient({ initialRequests }: AdminClientProps) {
   const filtered =
     filterStatus === "all" ? requests : requests.filter((r) => r.status === filterStatus);
 
+  const handleExport = () => {
+    const params = new URLSearchParams({ month: exportMonth });
+    if (exportUser.trim()) params.set("userName", exportUser.trim());
+    window.location.href = `/api/attendance/export?${params.toString()}`;
+  };
+
   return (
     <>
       <section className="dashboard-header">
@@ -94,6 +107,28 @@ export function AdminClient({ initialRequests }: AdminClientProps) {
           </label>
           <button className="sub-button" onClick={() => void reload()}>
             最新に更新
+          </button>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2 className="section-title">CSVエクスポート</h2>
+        <div className="export-row">
+          <label className="field field-inline">
+            対象月
+            <input type="month" value={exportMonth} onChange={(e) => setExportMonth(e.target.value)} />
+          </label>
+          <label className="field field-inline">
+            氏名（空白で全員）
+            <input
+              type="text"
+              value={exportUser}
+              onChange={(e) => setExportUser(e.target.value)}
+              placeholder="全員"
+            />
+          </label>
+          <button className="sub-button" onClick={handleExport}>
+            CSVダウンロード
           </button>
         </div>
       </section>

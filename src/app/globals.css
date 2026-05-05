@@ -521,3 +521,10 @@ th {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+.export-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
