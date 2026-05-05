@@ -195,17 +195,30 @@ export async function getGrantDays(): Promise<number> {
 
 export async function recordVacationUsed(userName: string, workDate: string): Promise<void> {
   const reason = `${workDate} 有給休暇取得`;
+  const month = workDate.slice(0, 7);
   if (hasDatabaseUrl()) {
+    // 同日に既に記録済みなら重複しない
+    const { rows } = await getPgPool().query<{ count: string }>(
+      "select count(*)::text from paid_leave_balances where user_name = $1 and reason = $2",
+      [userName, reason],
+    );
+    if (parseInt(rows[0]?.count ?? "0") > 0) return;
     await getPgPool().query(
       `insert into paid_leave_balances (user_name, granted_days, used_days, reason, target_month)
        values ($1, 0, 1, $2, $3)`,
-      [userName, reason, workDate.slice(0, 7)],
+      [userName, reason, month],
     );
     return;
   }
+  const { count } = await createSupabaseServerClient()
+    .from("paid_leave_balances")
+    .select("*", { count: "exact", head: true })
+    .eq("user_name", userName)
+    .eq("reason", reason);
+  if ((count ?? 0) > 0) return;
   await createSupabaseServerClient()
     .from("paid_leave_balances")
-    .insert({ user_name: userName, granted_days: 0, used_days: 1, reason, target_month: workDate.slice(0, 7) });
+    .insert({ user_name: userName, granted_days: 0, used_days: 1, reason, target_month: month });
 }
 
 export async function getUserPaidLeaveBalance(userName: string): Promise<PaidLeaveSummary | null> {

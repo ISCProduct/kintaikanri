@@ -3,6 +3,8 @@ import { listCorrectionRequests } from "@/server/correction-service";
 import { hasDatabaseUrl } from "@/server/pg-client";
 import { shouldUseSupabase } from "@/server/supabase-server";
 
+export const dynamic = "force-dynamic";
+
 export default async function CorrectionPage() {
   const canUseDb = hasDatabaseUrl() || shouldUseSupabase();
   const initialRequests = canUseDb ? (await listCorrectionRequests()).data : [];

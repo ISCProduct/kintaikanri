@@ -3,6 +3,8 @@ import { getSystemRules, getPaidLeaveSummaries } from "@/server/rules-service";
 import { hasDatabaseUrl } from "@/server/pg-client";
 import { shouldUseSupabase } from "@/server/supabase-server";
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminSettingsPage() {
   const canUseDb = hasDatabaseUrl() || shouldUseSupabase();
 
