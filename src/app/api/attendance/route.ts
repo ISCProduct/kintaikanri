@@ -5,6 +5,7 @@ import {
   clockOut,
   upsertAttendanceRecord,
   listAttendanceRecords,
+  recordOvertimeStart,
 } from "@/server/attendance-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
 import { recordVacationUsed } from "@/server/rules-service";
@@ -30,11 +31,12 @@ export async function GET() {
 }
 
 type AttendancePayload = {
-  action: "clockin" | "clockout" | "manual";
+  action: "clockin" | "clockout" | "overtime_start" | "manual";
   userName?: string;
   workDate?: string;
   startTime?: string;
   endTime?: string;
+  overtimeStart?: string;
   status?: AttendanceStatus;
   note?: string;
 };
@@ -76,6 +78,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ message: "endTime は必須です。" }, { status: 400 });
       }
       const { data, error } = await clockOut(userName, workDate, payload.endTime);
+      if (error) return NextResponse.json({ message: error.message }, { status: 400 });
+      return NextResponse.json({ record: data });
+    }
+
+    if (action === "overtime_start") {
+      if (!payload.overtimeStart) {
+        return NextResponse.json({ message: "overtimeStart は必須です。" }, { status: 400 });
+      }
+      const { data, error } = await recordOvertimeStart(userName, workDate, payload.overtimeStart);
       if (error) return NextResponse.json({ message: error.message }, { status: 400 });
       return NextResponse.json({ record: data });
     }

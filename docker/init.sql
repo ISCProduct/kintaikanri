@@ -6,6 +6,7 @@ create table if not exists attendance_records (
   work_date date not null,
   start_time time not null,
   end_time time,
+  overtime_start time,
   status text not null check (status in ('present', 'remote', 'vacation', 'holiday')),
   note text,
   created_at timestamptz not null default now(),

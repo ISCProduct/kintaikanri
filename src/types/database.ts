@@ -125,6 +125,7 @@ export type Database = {
           work_date: string;
           start_time: string;
           end_time: string | null;
+          overtime_start: string | null;
           status: "present" | "remote" | "vacation" | "holiday";
           note: string | null;
           created_at: string;
@@ -135,6 +136,7 @@ export type Database = {
           work_date: string;
           start_time: string;
           end_time?: string | null;
+          overtime_start?: string | null;
           status: "present" | "remote" | "vacation" | "holiday";
           note?: string | null;
           created_at?: string;
@@ -145,6 +147,7 @@ export type Database = {
           work_date?: string;
           start_time?: string;
           end_time?: string | null;
+          overtime_start?: string | null;
           status?: "present" | "remote" | "vacation" | "holiday";
           note?: string | null;
           created_at?: string;

@@ -6,6 +6,7 @@ export type AttendanceRecord = {
   work_date: string;
   start_time: string;
   end_time: string | null;
+  overtime_start: string | null;
   status: AttendanceStatus;
   note: string | null;
   created_at: string;

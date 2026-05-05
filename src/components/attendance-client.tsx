@@ -252,6 +252,21 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     setIsSubmitting(false);
   };
 
+  const handleOvertimeStart = async () => {
+    if (!userName.trim()) { setMessage("氏名を選択または入力してください。"); return; }
+    setIsSubmitting(true);
+    setMessage("");
+    const now = new Date();
+    const record = await postAttendance({
+      action: "overtime_start",
+      userName: userName.trim(),
+      workDate: getLocalDateString(),
+      overtimeStart: now.toTimeString().slice(0, 5),
+    });
+    if (record) { upsertRecord(record); setMessage("残業開始を記録しました。"); }
+    setIsSubmitting(false);
+  };
+
   return (
     <>
       <section className="dashboard-header">
@@ -303,6 +318,11 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               {todayRecord.end_time && (
                 <> （{formatMinutes(calcWork(todayRecord.start_time, todayRecord.end_time).work)}）</>
               )}
+            </span>
+          )}
+          {todayRecord?.overtime_start && (
+            <span className="summary-sub" style={{ color: "#c2410c" }}>
+              残業開始: {todayRecord.overtime_start}
             </span>
           )}
         </article>
@@ -373,6 +393,15 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                   disabled={isSubmitting}
                 >
                   出勤
+                </button>
+                <button
+                  type="button"
+                  className="button ghost-button stamp-btn stamp-btn-overtime"
+                  onClick={() => void handleOvertimeStart()}
+                  disabled={isSubmitting || !todayRecord}
+                  title={!todayRecord ? "先に出勤打刻が必要です" : ""}
+                >
+                  残業開始
                 </button>
                 <button
                   type="button"
@@ -476,6 +505,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                   <th>勤務日</th>
                   <th>開始</th>
                   <th>終了</th>
+                  <th>残業開始</th>
                   <th>勤務時間</th>
                   <th>残業時間</th>
                   <th>区分</th>
@@ -491,6 +521,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                     <td>{record.work_date}</td>
                     <td>{record.start_time}</td>
                     <td>{record.end_time ?? "-"}</td>
+                    <td>{record.overtime_start ?? "-"}</td>
                     <td>{record.end_time ? formatMinutes(work) : "-"}</td>
                     <td className={overtime > 0 ? "overtime-warn" : ""}>
                       {record.end_time ? formatMinutes(overtime) : "-"}

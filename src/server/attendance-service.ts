@@ -37,7 +37,7 @@ type Result<T> = { data: T | null; error: ServiceError | null };
 
 const SELECT_COLS = `
   id, user_name, work_date::text, start_time::text, end_time::text,
-  status, note, created_at::text
+  overtime_start::text, status, note, created_at::text
 `;
 
 function notFoundError(message: string): ServiceError {
@@ -301,6 +301,36 @@ export async function deleteAttendanceRecord(id: string) {
 
 // 旧 createAttendanceRecord は upsert へ委譲（後方互換）
 export const createAttendanceRecord = upsertAttendanceRecord;
+
+// 残業開始打刻：当日レコードの overtime_start を更新
+export async function recordOvertimeStart(
+  userName: string,
+  workDate: string,
+  overtimeStart: string,
+): Promise<Result<AttendanceRecord>> {
+  if (hasDatabaseUrl()) {
+    const { rows } = await getPgPool().query<AttendanceRecord>(
+      `update attendance_records set overtime_start = $1
+       where user_name = $2 and work_date = $3
+       returning ${SELECT_COLS}`,
+      [overtimeStart, userName, workDate],
+    );
+    if (!rows[0]) return { data: null, error: notFoundError("本日の出勤レコードが見つかりません。先に出勤打刻をしてください。") };
+    return { data: rows[0], error: null };
+  }
+  if (shouldUseSupabase()) {
+    const { data, error } = await createSupabaseServerClient()
+      .from("attendance_records")
+      .update({ overtime_start: overtimeStart })
+      .eq("user_name", userName)
+      .eq("work_date", workDate)
+      .select("*")
+      .single();
+    if (error || !data) return { data: null, error: { message: error?.message ?? "更新に失敗しました。" } };
+    return { data: data as AttendanceRecord, error: null };
+  }
+  return { data: null, error: { message: "データベース未設定です。" } };
+}
 
 // end_time が NULL で work_date が今日より前のレコード（退勤漏れ）
 export async function listMissingClockOuts(userName?: string): Promise<AttendanceRecord[]> {

@@ -246,6 +246,16 @@ h1 {
   justify-content: center;
 }
 
+.stamp-btn-overtime {
+  border-color: #fca5a5;
+  background: #fff7f7;
+  color: #b91c1c;
+}
+
+.stamp-btn-overtime:disabled {
+  opacity: 0.4;
+}
+
 .manual-form-toggle {
   margin-top: 1rem;
   text-align: center;
