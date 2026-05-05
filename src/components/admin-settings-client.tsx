@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { SystemRule } from "@/types/rules";
 import type { MonthlyOvertimeSummary, PaidLeaveSummary } from "@/types/rules";
 
+const ADMIN_SESSION_KEY = "kintai_admin_authed";
+
 function getThisMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -26,6 +28,8 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
   const [granting, setGranting] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState<"success" | "error">("success");
+  const [newPin, setNewPin] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
 
   const showMsg = (text: string, type: "success" | "error" = "success") => {
     setMessage(text);
@@ -92,6 +96,24 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
     for (const o of targets) {
       await handleGrant(o.user_name);
     }
+  };
+
+  const handleSavePin = async () => {
+    if (!newPin.trim()) { showMsg("PINを入力してください。", "error"); return; }
+    setPinSaving(true);
+    const res = await fetch("/api/rules", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "admin_pin", value: newPin.trim() }),
+    });
+    if (res.ok) {
+      showMsg("PINを変更しました。次回ログインから新しいPINが有効です。");
+      setNewPin("");
+      sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    } else {
+      showMsg("PIN変更に失敗しました。", "error");
+    }
+    setPinSaving(false);
   };
 
   const thresholdHours = parseFloat(editValues["overtime_threshold_hours"] ?? "30");
@@ -212,6 +234,27 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
             )}
           </>
         )}
+      </section>
+
+      {/* 管理者PIN変更 */}
+      <section className="card">
+        <h2 className="section-title">管理者PINコード変更</h2>
+        <p className="description">管理画面へのアクセスに使用するPINコードを変更できます。初期値は <strong>0000</strong> です。</p>
+        <div className="month-check-row">
+          <label className="field field-inline">
+            新しいPIN
+            <input
+              type="password"
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value)}
+              placeholder="新しいPINを入力"
+              maxLength={20}
+            />
+          </label>
+          <button className="sub-button" onClick={() => void handleSavePin()} disabled={pinSaving}>
+            {pinSaving ? "変更中..." : "PINを変更"}
+          </button>
+        </div>
       </section>
 
       {/* 有給残日数一覧 */}
