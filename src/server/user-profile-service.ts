@@ -71,7 +71,8 @@ export async function adminCreateUser(userName: string, initialPin: string): Pro
       .select("user_name")
       .eq("user_name", userName);
     if (rows?.[0]) return { ok: false, message: "このユーザーは既に登録されています。" };
-    await supabase.from("user_profiles").insert({ user_name: userName, pin_hash: hash });
+    const { error } = await supabase.from("user_profiles").insert({ user_name: userName, pin_hash: hash });
+    if (error) return { ok: false, message: `登録に失敗しました: ${error.message}` };
     return { ok: true };
   }
 
@@ -105,7 +106,8 @@ export async function changePin(userName: string, oldPin: string, newPin: string
     if (!existing || existing.pin_hash !== oldHash) {
       return { ok: false, message: "現在のPINが違います。" };
     }
-    await supabase.from("user_profiles").update({ pin_hash: newHash }).eq("user_name", userName);
+    const { error } = await supabase.from("user_profiles").update({ pin_hash: newHash }).eq("user_name", userName);
+    if (error) return { ok: false, message: `PIN変更に失敗しました: ${error.message}` };
     return { ok: true };
   }
 
@@ -138,9 +140,10 @@ export async function setManagerRole(userName: string, isManager: boolean): Prom
     return;
   }
   if (shouldUseSupabase()) {
-    await createSupabaseServerClient()
+    const { error } = await createSupabaseServerClient()
       .from("user_profiles")
       .update({ is_manager: isManager })
       .eq("user_name", userName);
+    if (error) throw new Error(`管理者ロール更新に失敗しました: ${error.message}`);
   }
 }
