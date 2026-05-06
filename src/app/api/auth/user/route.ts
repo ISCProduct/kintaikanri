@@ -1,38 +1,37 @@
 import { NextResponse } from "next/server";
-import { verifyOrRegisterUser, changePassword } from "@/server/user-profile-service";
+import { verifyOrRegisterUser, changePin } from "@/server/user-profile-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
 
 type LoginPayload = {
   userName?: string;
-  password?: string;
-  newPassword?: string;
+  pin?: string;
+  newPin?: string;
 };
 
 export async function POST(request: Request) {
   try {
-    const { userName, password, newPassword } = (await request.json()) as LoginPayload;
+    const { userName, pin, newPin } = (await request.json()) as LoginPayload;
 
-    if (!userName || !password) {
-      return NextResponse.json({ message: "ユーザー名とパスワードは必須です。" }, { status: 400 });
+    if (!userName || !pin) {
+      return NextResponse.json({ message: "ユーザー名とPINは必須です。" }, { status: 400 });
     }
 
-    if (newPassword) {
-      const result = await changePassword(userName, password, newPassword);
+    if (newPin) {
+      const result = await changePin(userName, pin, newPin);
       if (!result.ok) {
         return NextResponse.json({ message: result.message }, { status: 401 });
       }
       return NextResponse.json({ ok: true });
     }
 
-    const result = await verifyOrRegisterUser(userName, password);
+    const result = await verifyOrRegisterUser(userName, pin);
     if (!result.ok) {
       return NextResponse.json({ message: result.message }, { status: 401 });
     }
-    return NextResponse.json({ ok: true, firstTime: result.firstTime });
+    return NextResponse.json({ ok: true, firstTime: result.firstTime, isManager: result.isManager });
   } catch (error) {
     if (isSupabaseConfigurationError(error)) {
-      // Supabase未設定時は認証スキップ（開発環境）
-      return NextResponse.json({ ok: true, firstTime: false });
+      return NextResponse.json({ ok: true, firstTime: false, isManager: false });
     }
     const message = error instanceof Error ? error.message : "不明なエラー";
     return NextResponse.json({ message }, { status: 500 });

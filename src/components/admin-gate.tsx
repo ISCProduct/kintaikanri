@@ -3,6 +3,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 
 const ADMIN_SESSION_KEY = "kintai_admin_authed";
+const MANAGER_SESSION_KEY = "kintai_manager_authed";
 
 export function AdminGate({ children }: { children: ReactNode }) {
   const [authed, setAuthed] = useState(false);
@@ -12,8 +13,9 @@ export function AdminGate({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const v = sessionStorage.getItem(ADMIN_SESSION_KEY);
-    if (v === "1") setAuthed(true);
+    const isAdmin = sessionStorage.getItem(ADMIN_SESSION_KEY) === "1";
+    const isManager = sessionStorage.getItem(MANAGER_SESSION_KEY) === "1";
+    if (isAdmin || isManager) setAuthed(true);
     setChecked(true);
   }, []);
 
@@ -33,6 +35,7 @@ export function AdminGate({ children }: { children: ReactNode }) {
     } else {
       setError(data.message ?? "認証に失敗しました。");
     }
+    setPin("");
     setLoading(false);
   };
 
@@ -43,20 +46,26 @@ export function AdminGate({ children }: { children: ReactNode }) {
       <main className="container">
         <section className="card" style={{ maxWidth: 360, margin: "80px auto" }}>
           <h2 className="section-title">管理者認証</h2>
-          <p className="description">管理画面にアクセスするにはPINコードが必要です。</p>
+          <p className="description">
+            管理画面にアクセスするには管理者PINコード、または管理職ユーザーのPINでログインしてください。
+          </p>
           <form className="form-grid" onSubmit={(e) => void handleSubmit(e)}>
             <label className="field field-full">
               PINコード
               <input
-                type="password"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
                 value={pin}
-                onChange={(e) => setPin(e.target.value)}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
                 placeholder="0000"
                 autoFocus
                 required
+                style={{ textAlign: "center", fontSize: "1.4rem", letterSpacing: "0.3em" }}
               />
             </label>
-            <button className="button" type="submit" disabled={loading}>
+            <button className="button" type="submit" disabled={loading || !pin}>
               {loading ? "確認中..." : "ログイン"}
             </button>
           </form>

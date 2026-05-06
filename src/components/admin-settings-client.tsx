@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { SystemRule } from "@/types/rules";
 import type { MonthlyOvertimeSummary, PaidLeaveSummary } from "@/types/rules";
+import type { UserProfile } from "@/server/user-profile-service";
 
 const ADMIN_SESSION_KEY = "kintai_admin_authed";
 
@@ -30,6 +31,9 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
   const [messageType, setMessageType] = useState<"success" | "error">("success");
   const [newPin, setNewPin] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [togglingUser, setTogglingUser] = useState<string | null>(null);
 
   const showMsg = (text: string, type: "success" | "error" = "success") => {
     setMessage(text);
@@ -114,6 +118,30 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
       showMsg("PIN変更に失敗しました。", "error");
     }
     setPinSaving(false);
+  };
+
+  useEffect(() => {
+    setUsersLoading(true);
+    void fetch("/api/admin/users")
+      .then((r) => r.json())
+      .then((d: { users?: UserProfile[] }) => setUsers(d.users ?? []))
+      .catch(() => setUsers([]))
+      .finally(() => setUsersLoading(false));
+  }, []);
+
+  const handleToggleManager = async (userName: string, isManager: boolean) => {
+    setTogglingUser(userName);
+    const res = await fetch("/api/admin/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userName, isManager }),
+    });
+    if (res.ok) {
+      setUsers((prev) => prev.map((u) => u.user_name === userName ? { ...u, is_manager: isManager } : u));
+    } else {
+      showMsg("変更に失敗しました。", "error");
+    }
+    setTogglingUser(null);
   };
 
   const thresholdHours = parseFloat(editValues["overtime_threshold_hours"] ?? "30");
@@ -255,6 +283,54 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
             {pinSaving ? "変更中..." : "PINを変更"}
           </button>
         </div>
+      </section>
+
+      {/* ユーザー管理 */}
+      <section className="card">
+        <h2 className="section-title">ユーザー管理（管理職設定）</h2>
+        <p className="description" style={{ fontSize: "0.85rem" }}>
+          管理職に設定すると、そのユーザーのPINで管理画面にアクセスできるようになります。
+        </p>
+        {usersLoading ? (
+          <p className="description">読込中...</p>
+        ) : users.length === 0 ? (
+          <p className="description">PINを登録済みのユーザーがいません。</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>氏名</th>
+                  <th>管理職</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map((u) => (
+                  <tr key={u.user_name}>
+                    <td>{u.user_name}</td>
+                    <td>
+                      {u.is_manager ? (
+                        <span className="status-chip chip-approved">管理職</span>
+                      ) : (
+                        <span className="status-chip">一般</span>
+                      )}
+                    </td>
+                    <td>
+                      <button
+                        className={u.is_manager ? "reject-button" : "approve-button"}
+                        disabled={togglingUser === u.user_name}
+                        onClick={() => void handleToggleManager(u.user_name, !u.is_manager)}
+                      >
+                        {u.is_manager ? "管理職解除" : "管理職に設定"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* 有給残日数一覧 */}

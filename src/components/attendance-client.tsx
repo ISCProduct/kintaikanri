@@ -94,12 +94,12 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isFirstTimeUser, setIsFirstTimeUser] = useState(false);
 
-  // パスワード変更フォーム
-  const [showPwChange, setShowPwChange] = useState(false);
-  const [pwOld, setPwOld] = useState("");
-  const [pwNew, setPwNew] = useState("");
-  const [pwNew2, setPwNew2] = useState("");
-  const [pwChangeMsg, setPwChangeMsg] = useState("");
+  // PIN変更フォーム
+  const [showPinChange, setShowPinChange] = useState(false);
+  const [pinOld, setPinOld] = useState("");
+  const [pinNew, setPinNew] = useState("");
+  const [pinNew2, setPinNew2] = useState("");
+  const [pinChangeMsg, setPinChangeMsg] = useState("");
 
   // 初期ロード：localStorage から復元 + sessionStorage で認証確認
   useEffect(() => {
@@ -204,13 +204,14 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       const res = await fetch("/api/auth/user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userName: selectValue, password: authPassword }),
+        body: JSON.stringify({ userName: selectValue, pin: authPassword }),
       });
-      const d = (await res.json()) as { ok?: boolean; firstTime?: boolean; message?: string };
+      const d = (await res.json()) as { ok?: boolean; firstTime?: boolean; isManager?: boolean; message?: string };
       if (!res.ok || !d.ok) {
         setAuthError(d.message ?? "認証に失敗しました。");
       } else {
         sessionStorage.setItem(`kintai_auth_${selectValue}`, "1");
+        if (d.isManager) sessionStorage.setItem("kintai_manager_authed", "1");
         setIsAuthenticated(true);
         setUserName(selectValue);
         setAuthPassword("");
@@ -225,6 +226,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const handleLogout = () => {
     if (selectValue && selectValue !== OTHER_VALUE) {
       sessionStorage.removeItem(`kintai_auth_${selectValue}`);
+      sessionStorage.removeItem("kintai_manager_authed");
     }
     setIsAuthenticated(false);
     setUserName("");
@@ -232,26 +234,26 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     setAuthPassword("");
     setAuthError("");
     setIsFirstTimeUser(false);
-    setShowPwChange(false);
+    setShowPinChange(false);
   };
 
-  const handlePwChange = async (e: FormEvent) => {
+  const handlePinChange = async (e: FormEvent) => {
     e.preventDefault();
-    if (pwNew !== pwNew2) { setPwChangeMsg("新しいパスワードが一致しません。"); return; }
-    if (pwNew.length < 4) { setPwChangeMsg("パスワードは4文字以上にしてください。"); return; }
-    setPwChangeMsg("");
+    if (pinNew !== pinNew2) { setPinChangeMsg("新しいPINが一致しません。"); return; }
+    if (pinNew.length < 4) { setPinChangeMsg("PINは4桁以上にしてください。"); return; }
+    setPinChangeMsg("");
     const res = await fetch("/api/auth/user", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userName, password: pwOld, newPassword: pwNew }),
+      body: JSON.stringify({ userName, pin: pinOld, newPin: pinNew }),
     });
     const d = (await res.json()) as { ok?: boolean; message?: string };
     if (!res.ok || !d.ok) {
-      setPwChangeMsg(d.message ?? "変更に失敗しました。");
+      setPinChangeMsg(d.message ?? "変更に失敗しました。");
     } else {
-      setPwChangeMsg("パスワードを変更しました。");
-      setPwOld(""); setPwNew(""); setPwNew2("");
-      setTimeout(() => { setShowPwChange(false); setPwChangeMsg(""); }, 1500);
+      setPinChangeMsg("PINを変更しました。");
+      setPinOld(""); setPinNew(""); setPinNew2("");
+      setTimeout(() => { setShowPinChange(false); setPinChangeMsg(""); }, 1500);
     }
   };
 
@@ -466,32 +468,32 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
       {/* 認証フォーム */}
       {needsAuth && (
-        <section className="card" style={{ maxWidth: 420, margin: "0 auto" }}>
+        <section className="card" style={{ maxWidth: 360, margin: "0 auto" }}>
           <p className="section-title">
-            {isFirstTimeUser ? "パスワードを設定してください（初回）" : `${selectValue} としてログイン`}
+            {isFirstTimeUser ? "PIN登録（初回）" : `${selectValue} のPINを入力`}
           </p>
-          {isFirstTimeUser ? (
-            <p className="description" style={{ fontSize: "0.85rem" }}>
-              このアカウントは初めてのログインです。パスワードを設定します。
-            </p>
-          ) : (
-            <p className="description" style={{ fontSize: "0.85rem" }}>
-              初めてログインする場合はパスワードが新規登録されます。
-            </p>
-          )}
+          <p className="description" style={{ fontSize: "0.85rem" }}>
+            {isFirstTimeUser
+              ? "初めてのログインです。これからのPINとして登録されます。"
+              : "初めてログインする場合はPINが新規登録されます。"}
+          </p>
           <form onSubmit={handleAuthSubmit} className="form-grid">
             <label className="field field-full">
-              パスワード
+              PIN
               <input
-                type="password"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
                 value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                placeholder="パスワードを入力"
+                onChange={(e) => setAuthPassword(e.target.value.replace(/\D/g, ""))}
+                placeholder="0000"
                 autoFocus
+                style={{ textAlign: "center", fontSize: "1.8rem", letterSpacing: "0.4em" }}
               />
             </label>
             {authError && <p className="message message-error field-full">{authError}</p>}
-            <button className="button" type="submit" disabled={isAuthSubmitting || !authPassword}>
+            <button className="button" type="submit" disabled={isAuthSubmitting || authPassword.length < 4}>
               {isAuthSubmitting ? "確認中..." : "ログイン"}
             </button>
           </form>
@@ -501,32 +503,32 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       {/* メインコンテンツ（認証後のみ表示） */}
       {isAuthenticated && (
         <>
-          {/* パスワード変更 */}
-          {showPwChange && (
-            <section className="card" style={{ maxWidth: 420, margin: "0 auto" }}>
-              <p className="section-title">パスワード変更</p>
-              <form onSubmit={handlePwChange} className="form-grid">
+          {/* PIN変更 */}
+          {showPinChange && (
+            <section className="card" style={{ maxWidth: 360, margin: "0 auto" }}>
+              <p className="section-title">PIN変更</p>
+              <form onSubmit={handlePinChange} className="form-grid">
                 <label className="field field-full">
-                  現在のパスワード
-                  <input type="password" value={pwOld} onChange={(e) => setPwOld(e.target.value)} />
+                  現在のPIN
+                  <input type="text" inputMode="numeric" maxLength={8} value={pinOld} onChange={(e) => setPinOld(e.target.value.replace(/\D/g, ""))} style={{ textAlign: "center", letterSpacing: "0.3em" }} />
                 </label>
                 <label className="field field-full">
-                  新しいパスワード
-                  <input type="password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} />
+                  新しいPIN
+                  <input type="text" inputMode="numeric" maxLength={8} value={pinNew} onChange={(e) => setPinNew(e.target.value.replace(/\D/g, ""))} style={{ textAlign: "center", letterSpacing: "0.3em" }} />
                 </label>
                 <label className="field field-full">
-                  新しいパスワード（確認）
-                  <input type="password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} />
+                  新しいPIN（確認）
+                  <input type="text" inputMode="numeric" maxLength={8} value={pinNew2} onChange={(e) => setPinNew2(e.target.value.replace(/\D/g, ""))} style={{ textAlign: "center", letterSpacing: "0.3em" }} />
                 </label>
-                {pwChangeMsg && (
-                  <p className={`message field-full ${pwChangeMsg.includes("変更しました") ? "" : "message-error"}`}>
-                    {pwChangeMsg}
+                {pinChangeMsg && (
+                  <p className={`message field-full ${pinChangeMsg.includes("変更しました") ? "" : "message-error"}`}>
+                    {pinChangeMsg}
                   </p>
                 )}
-                <button className="button ghost-button" type="submit" disabled={!pwOld || !pwNew || !pwNew2}>
+                <button className="button ghost-button" type="submit" disabled={!pinOld || pinNew.length < 4 || !pinNew2}>
                   変更する
                 </button>
-                <button className="button ghost-button" type="button" onClick={() => setShowPwChange(false)} style={{ gridColumn: "auto" }}>
+                <button className="button ghost-button" type="button" onClick={() => setShowPinChange(false)} style={{ gridColumn: "auto" }}>
                   キャンセル
                 </button>
               </form>
@@ -596,9 +598,9 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                 type="button"
                 className="sub-button"
                 style={{ fontSize: "0.82rem" }}
-                onClick={() => { setShowPwChange((v) => !v); setPwChangeMsg(""); }}
+                onClick={() => { setShowPinChange((v) => !v); setPinChangeMsg(""); }}
               >
-                パスワード変更
+                PIN変更
               </button>
             </div>
 

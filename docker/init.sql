@@ -1,9 +1,10 @@
 create extension if not exists "pgcrypto";
 
--- ユーザープロフィール（パスワード管理）
+-- ユーザープロフィール（PIN管理・管理職フラグ）
 create table if not exists user_profiles (
   user_name text primary key,
-  password_hash text not null,
+  pin_hash text not null,
+  is_manager boolean not null default false,
   created_at timestamptz not null default now()
 );
 
