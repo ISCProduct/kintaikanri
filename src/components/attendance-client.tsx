@@ -76,6 +76,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [activeTab, setActiveTab] = useState<"stamp" | "calendar" | "history">("stamp");
   const [showManualForm, setShowManualForm] = useState(false);
   const [leaveBalance, setLeaveBalance] = useState<PaidLeaveSummary | null>(null);
+  const [currentTime, setCurrentTime] = useState<string>("");
 
   useEffect(() => {
     const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
@@ -88,7 +89,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => setToday(getLocalDateString()), 60_000);
+    const tick = () => {
+      const now = new Date();
+      setToday(getLocalDateString());
+      setCurrentTime(now.toTimeString().slice(0, 8));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -381,12 +388,14 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
             <div className="stamp-panel stamp-panel-main">
               <p className="stamp-title">本日の打刻</p>
               <p className="stamp-date">{today}</p>
+              <p className="stamp-clock">{currentTime}</p>
               <div className="stamp-actions">
                 <button
                   type="button"
                   className="button ghost-button stamp-btn"
                   onClick={() => void handleClockIn()}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !!todayRecord}
+                  title={todayRecord ? "既に出勤済みです" : ""}
                 >
                   出勤
                 </button>

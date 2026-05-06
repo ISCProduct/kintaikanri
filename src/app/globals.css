@@ -228,6 +228,14 @@ h1 {
   letter-spacing: 0.01em;
 }
 
+.stamp-clock {
+  font-size: 2.4rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--primary);
+}
+
 .stamp-actions {
   display: grid;
   gap: 0.55rem;
