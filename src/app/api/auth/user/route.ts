@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyOrRegisterUser, changePin } from "@/server/user-profile-service";
+import { verifyUser, changePin } from "@/server/user-profile-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
 
 type LoginPayload = {
@@ -24,11 +24,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    const result = await verifyOrRegisterUser(userName, pin);
+    const result = await verifyUser(userName, pin);
     if (!result.ok) {
       return NextResponse.json({ message: result.message }, { status: 401 });
     }
-    return NextResponse.json({ ok: true, firstTime: result.firstTime, isManager: result.isManager });
+    return NextResponse.json({ ok: true, firstTime: false, isManager: result.isManager });
   } catch (error) {
     if (isSupabaseConfigurationError(error)) {
       return NextResponse.json({ ok: true, firstTime: false, isManager: false });

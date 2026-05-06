@@ -38,6 +38,10 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [togglingUser, setTogglingUser] = useState<string | null>(null);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserPin, setNewUserPin] = useState("");
+  const [newUserPin2, setNewUserPin2] = useState("");
+  const [newUserMsg, setNewUserMsg] = useState("");
 
   const showMsg = (text: string, type: "success" | "error" = "success") => {
     setMessage(text);
@@ -143,6 +147,28 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
       .catch(() => setUsers([]))
       .finally(() => setUsersLoading(false));
   }, []);
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newUserPin !== newUserPin2) { setNewUserMsg("PINが一致しません。"); return; }
+    if (newUserPin.length < 4) { setNewUserMsg("PINは4桁以上にしてください。"); return; }
+    setNewUserMsg("");
+    const res = await fetch("/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userName: newUserName.trim(), initialPin: newUserPin }),
+    });
+    const d = (await res.json()) as { ok?: boolean; message?: string };
+    if (!res.ok || !d.ok) {
+      setNewUserMsg(d.message ?? "作成に失敗しました。");
+    } else {
+      setNewUserMsg(`「${newUserName.trim()}」を登録しました。`);
+      setNewUserName(""); setNewUserPin(""); setNewUserPin2("");
+      const r2 = await fetch("/api/admin/users");
+      const d2 = (await r2.json()) as { users?: UserProfile[] };
+      setUsers(d2.users ?? []);
+    }
+  };
 
   const handleToggleManager = async (userName: string, isManager: boolean) => {
     setTogglingUser(userName);
@@ -324,21 +350,77 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
 
       {/* ユーザー管理 */}
       <section className="card">
-        <h2 className="section-title">ユーザー管理（管理職設定）</h2>
+        <h2 className="section-title">ユーザー管理</h2>
         <p className="description" style={{ fontSize: "0.85rem" }}>
-          管理職に設定すると、そのユーザーのPINで管理画面にアクセスできるようになります。
+          ユーザーはここで登録した人だけがログインできます。管理職に設定すると管理画面にもアクセスできます。
         </p>
+
+        {/* 新規ユーザー作成 */}
+        <form onSubmit={(e) => void handleCreateUser(e)} className="form-grid" style={{ borderBottom: "1px solid var(--line)", paddingBottom: "1rem" }}>
+          <p className="section-title field-full" style={{ fontSize: "0.9rem" }}>新規ユーザー登録</p>
+          <label className="field">
+            氏名
+            <input
+              type="text"
+              value={newUserName}
+              onChange={(e) => setNewUserName(e.target.value)}
+              placeholder="山田 太郎"
+              required
+            />
+          </label>
+          <label className="field">
+            初期PIN
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={8}
+              value={newUserPin}
+              onChange={(e) => setNewUserPin(e.target.value.replace(/\D/g, ""))}
+              placeholder="0000"
+              style={{ textAlign: "center", letterSpacing: "0.3em" }}
+              required
+            />
+          </label>
+          <label className="field">
+            初期PIN（確認）
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={8}
+              value={newUserPin2}
+              onChange={(e) => setNewUserPin2(e.target.value.replace(/\D/g, ""))}
+              placeholder="0000"
+              style={{ textAlign: "center", letterSpacing: "0.3em" }}
+              required
+            />
+          </label>
+          <button
+            className="button ghost-button"
+            type="submit"
+            disabled={!newUserName.trim() || newUserPin.length < 4 || !newUserPin2}
+            style={{ alignSelf: "flex-end" }}
+          >
+            登録する
+          </button>
+          {newUserMsg && (
+            <p className={`message field-full ${newUserMsg.includes("登録しました") ? "" : "message-error"}`}>
+              {newUserMsg}
+            </p>
+          )}
+        </form>
+
+        {/* ユーザー一覧 */}
         {usersLoading ? (
           <p className="description">読込中...</p>
         ) : users.length === 0 ? (
-          <p className="description">PINを登録済みのユーザーがいません。</p>
+          <p className="description">登録済みのユーザーがいません。</p>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
                   <th>氏名</th>
-                  <th>管理職</th>
+                  <th>権限</th>
                   <th>操作</th>
                 </tr>
               </thead>

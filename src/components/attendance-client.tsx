@@ -92,7 +92,6 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
-  const [isFirstTimeUser, setIsFirstTimeUser] = useState(false);
 
   // PIN変更フォーム
   const [showPinChange, setShowPinChange] = useState(false);
@@ -170,7 +169,6 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       setIsAuthenticated(false);
       setAuthPassword("");
       setAuthError("");
-      setIsFirstTimeUser(false);
       // セッション内で認証済みなら即復元
       if (sessionStorage.getItem(`kintai_auth_${value}`) === "1") {
         setUserName(value);
@@ -191,7 +189,6 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     setIsAuthenticated(false);
     setAuthPassword("");
     setAuthError("");
-    setIsFirstTimeUser(false);
   };
 
   // ログイン / 初回登録
@@ -215,7 +212,6 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
         setIsAuthenticated(true);
         setUserName(selectValue);
         setAuthPassword("");
-        if (d.firstTime) setIsFirstTimeUser(true);
       }
     } catch {
       setAuthError("通信エラーが発生しました。");
@@ -233,7 +229,6 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     setSelectValue("");
     setAuthPassword("");
     setAuthError("");
-    setIsFirstTimeUser(false);
     setShowPinChange(false);
   };
 
@@ -469,13 +464,9 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       {/* 認証フォーム */}
       {needsAuth && (
         <section className="card" style={{ maxWidth: 360, margin: "0 auto" }}>
-          <p className="section-title">
-            {isFirstTimeUser ? "PIN登録（初回）" : `${selectValue} のPINを入力`}
-          </p>
+          <p className="section-title">{selectValue} のPINを入力</p>
           <p className="description" style={{ fontSize: "0.85rem" }}>
-            {isFirstTimeUser
-              ? "初めてのログインです。これからのPINとして登録されます。"
-              : "初めてログインする場合はPINが新規登録されます。"}
+            PINが未登録の場合は管理者に発行を依頼してください。
           </p>
           <form onSubmit={handleAuthSubmit} className="form-grid">
             <label className="field field-full">

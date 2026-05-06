@@ -5,7 +5,8 @@ import { useState, useEffect, type ReactNode } from "react";
 const ADMIN_SESSION_KEY = "kintai_admin_authed";
 const MANAGER_SESSION_KEY = "kintai_manager_authed";
 
-export function AdminGate({ children }: { children: ReactNode }) {
+// adminOnly=true のとき管理者PINのみ通過（管理職ユーザーは不可）
+export function AdminGate({ children, adminOnly = false }: { children: ReactNode; adminOnly?: boolean }) {
   const [authed, setAuthed] = useState(false);
   const [checked, setChecked] = useState(false);
   const [pin, setPin] = useState("");
@@ -15,9 +16,9 @@ export function AdminGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     const isAdmin = sessionStorage.getItem(ADMIN_SESSION_KEY) === "1";
     const isManager = sessionStorage.getItem(MANAGER_SESSION_KEY) === "1";
-    if (isAdmin || isManager) setAuthed(true);
+    if (isAdmin || (!adminOnly && isManager)) setAuthed(true);
     setChecked(true);
-  }, []);
+  }, [adminOnly]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +48,9 @@ export function AdminGate({ children }: { children: ReactNode }) {
         <section className="card" style={{ maxWidth: 360, margin: "80px auto" }}>
           <h2 className="section-title">管理者認証</h2>
           <p className="description">
-            管理画面にアクセスするには管理者PINコード、または管理職ユーザーのPINでログインしてください。
+            {adminOnly
+              ? "この画面は管理者PINコードが必要です。"
+              : "管理者PINコード、または管理職ユーザーのPINでログインしてください。"}
           </p>
           <form className="form-grid" onSubmit={(e) => void handleSubmit(e)}>
             <label className="field field-full">

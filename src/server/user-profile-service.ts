@@ -16,8 +16,9 @@ export type VerifyResult =
   | { ok: true; firstTime: boolean; isManager: boolean }
   | { ok: false; message: string };
 
-export async function verifyOrRegisterUser(userName: string, pin: string): Promise<VerifyResult> {
+export async function verifyUser(userName: string, pin: string): Promise<VerifyResult> {
   const hash = hashPin(pin);
+  const notRegistered: VerifyResult = { ok: false, message: "このユーザーはPINが未登録です。管理者にPINの発行を依頼してください。" };
 
   if (hasDatabaseUrl()) {
     const pool = getPgPool();
@@ -25,16 +26,8 @@ export async function verifyOrRegisterUser(userName: string, pin: string): Promi
       "select pin_hash, is_manager from user_profiles where user_name = $1",
       [userName],
     );
-    if (!rows[0]) {
-      await pool.query(
-        "insert into user_profiles (user_name, pin_hash) values ($1, $2)",
-        [userName, hash],
-      );
-      return { ok: true, firstTime: true, isManager: false };
-    }
-    if (rows[0].pin_hash !== hash) {
-      return { ok: false, message: "PINが違います。" };
-    }
+    if (!rows[0]) return notRegistered;
+    if (rows[0].pin_hash !== hash) return { ok: false, message: "PINが違います。" };
     return { ok: true, firstTime: false, isManager: rows[0].is_manager };
   }
 
@@ -45,17 +38,44 @@ export async function verifyOrRegisterUser(userName: string, pin: string): Promi
       .select("pin_hash, is_manager")
       .eq("user_name", userName);
     const existing = (rows?.[0] ?? null) as { pin_hash: string; is_manager: boolean } | null;
-    if (!existing) {
-      await supabase.from("user_profiles").insert({ user_name: userName, pin_hash: hash });
-      return { ok: true, firstTime: true, isManager: false };
-    }
-    if (existing.pin_hash !== hash) {
-      return { ok: false, message: "PINが違います。" };
-    }
+    if (!existing) return notRegistered;
+    if (existing.pin_hash !== hash) return { ok: false, message: "PINが違います。" };
     return { ok: true, firstTime: false, isManager: existing.is_manager };
   }
 
+  // ローカル開発モードは認証スキップ
   return { ok: true, firstTime: false, isManager: false };
+}
+
+export async function adminCreateUser(userName: string, initialPin: string): Promise<{ ok: boolean; message?: string }> {
+  const hash = hashPin(initialPin);
+
+  if (hasDatabaseUrl()) {
+    const pool = getPgPool();
+    const { rows } = await pool.query<{ user_name: string }>(
+      "select user_name from user_profiles where user_name = $1",
+      [userName],
+    );
+    if (rows[0]) return { ok: false, message: "このユーザーは既に登録されています。" };
+    await pool.query(
+      "insert into user_profiles (user_name, pin_hash) values ($1, $2)",
+      [userName, hash],
+    );
+    return { ok: true };
+  }
+
+  if (shouldUseSupabase()) {
+    const supabase = createSupabaseServerClient();
+    const { data: rows } = await supabase
+      .from("user_profiles")
+      .select("user_name")
+      .eq("user_name", userName);
+    if (rows?.[0]) return { ok: false, message: "このユーザーは既に登録されています。" };
+    await supabase.from("user_profiles").insert({ user_name: userName, pin_hash: hash });
+    return { ok: true };
+  }
+
+  return { ok: true };
 }
 
 export async function changePin(userName: string, oldPin: string, newPin: string): Promise<{ ok: boolean; message?: string }> {
