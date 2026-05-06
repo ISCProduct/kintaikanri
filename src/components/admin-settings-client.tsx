@@ -31,6 +31,10 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
   const [messageType, setMessageType] = useState<"success" | "error">("success");
   const [newPin, setNewPin] = useState("");
   const [pinSaving, setPinSaving] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState(
+    () => initialRules.find((r) => r.key === "discord_webhook_url")?.value ?? "",
+  );
+  const [webhookSaving, setWebhookSaving] = useState(false);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [togglingUser, setTogglingUser] = useState<string | null>(null);
@@ -100,6 +104,17 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
     for (const o of targets) {
       await handleGrant(o.user_name);
     }
+  };
+
+  const handleSaveWebhook = async () => {
+    setWebhookSaving(true);
+    const res = await fetch("/api/rules", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "discord_webhook_url", value: webhookUrl.trim() }),
+    });
+    showMsg(res.ok ? "Webhook URLを保存しました。" : "保存に失敗しました。", res.ok ? "success" : "error");
+    setWebhookSaving(false);
   };
 
   const handleSavePin = async () => {
@@ -281,6 +296,28 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
           </label>
           <button className="sub-button" onClick={() => void handleSavePin()} disabled={pinSaving}>
             {pinSaving ? "変更中..." : "PINを変更"}
+          </button>
+        </div>
+      </section>
+
+      {/* Discord通知設定 */}
+      <section className="card">
+        <h2 className="section-title">Discord通知設定</h2>
+        <p className="description" style={{ fontSize: "0.85rem" }}>
+          出勤・退勤・休憩・外出などの打刻時にDiscordへ通知します。WebhookのURLをDiscordサーバーの設定から取得して貼り付けてください。空欄にすると通知しません。
+        </p>
+        <div className="month-check-row" style={{ alignItems: "flex-end" }}>
+          <label className="field" style={{ flex: 1 }}>
+            Webhook URL
+            <input
+              type="url"
+              value={webhookUrl}
+              onChange={(e) => setWebhookUrl(e.target.value)}
+              placeholder="https://discord.com/api/webhooks/..."
+            />
+          </label>
+          <button className="sub-button" onClick={() => void handleSaveWebhook()} disabled={webhookSaving}>
+            {webhookSaving ? "保存中..." : "保存"}
           </button>
         </div>
       </section>

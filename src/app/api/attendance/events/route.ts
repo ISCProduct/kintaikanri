@@ -3,6 +3,7 @@ import type { AttendanceEventType } from "@/types/attendance";
 import { createAttendanceEvent, listAttendanceEvents } from "@/server/attendance-events-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
 import { isMonthClosed } from "@/server/closing-service";
+import { notifyDiscord } from "@/server/discord-service";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -42,6 +43,7 @@ export async function POST(request: Request) {
     }
     const { data, error } = await createAttendanceEvent(userName, workDate, eventType, eventTime);
     if (error) return NextResponse.json({ message: error.message }, { status: 400 });
+    void notifyDiscord(userName, eventType, eventTime, workDate);
     return NextResponse.json({ event: data }, { status: 201 });
   } catch (error) {
     if (isSupabaseConfigurationError(error)) {

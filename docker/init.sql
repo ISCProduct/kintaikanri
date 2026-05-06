@@ -30,9 +30,10 @@ create table if not exists system_rules (
 );
 
 insert into system_rules (key, value, label) values
-  ('overtime_threshold_hours', '30', '月次残業時間の閾値（時間）'),
+  ('overtime_threshold_hours', '30',  '月次残業時間の閾値（時間）'),
   ('overtime_leave_grant_days', '1',  '閾値超過時の有給付与日数'),
-  ('admin_pin',                '0000', '管理者PINコード')
+  ('admin_pin',                '0000', '管理者PINコード'),
+  ('discord_webhook_url',      '',     'Discord通知用WebhookURL')
 on conflict (key) do nothing;
 
 -- 有給残日数管理
