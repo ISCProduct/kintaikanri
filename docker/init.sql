@@ -1,5 +1,12 @@
 create extension if not exists "pgcrypto";
 
+-- ユーザープロフィール（パスワード管理）
+create table if not exists user_profiles (
+  user_name text primary key,
+  password_hash text not null,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists attendance_records (
   id uuid primary key default gen_random_uuid(),
   user_name text not null default '',

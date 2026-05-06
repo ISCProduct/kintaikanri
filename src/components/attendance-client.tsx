@@ -21,6 +21,8 @@ function getLocalDateString() {
 }
 
 const USER_NAME_KEY = "kintai_user_name";
+const USER_NAME_LIST_KEY = "kintai_user_name_list";
+const OTHER_VALUE = "__other__";
 const STANDARD_WORK_MINUTES = 8 * 60;
 
 function timeToMinutes(t: string): number {
@@ -40,8 +42,6 @@ function calcWork(start: string, end: string | null): { work: number; overtime: 
   const overtime = Math.max(0, work - STANDARD_WORK_MINUTES);
   return { work, overtime };
 }
-const USER_NAME_LIST_KEY = "kintai_user_name_list";
-const OTHER_VALUE = "__other__";
 
 type AttendanceFormState = {
   workDate: string;
@@ -75,6 +75,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [form, setForm] = useState<AttendanceFormState>(initialFormState);
   const [userName, setUserName] = useState<string>("");
   const [selectValue, setSelectValue] = useState<string>("");
+  const [newNameInput, setNewNameInput] = useState<string>("");
   const [customNames, setCustomNames] = useState<string[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>(initialRecords);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -86,21 +87,38 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [currentTime, setCurrentTime] = useState<string>("");
   const [todayEvents, setTodayEvents] = useState<AttendanceEvent[]>([]);
 
+  // 認証状態
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
+  const [isFirstTimeUser, setIsFirstTimeUser] = useState(false);
+
+  // パスワード変更フォーム
+  const [showPwChange, setShowPwChange] = useState(false);
+  const [pwOld, setPwOld] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [pwNew2, setPwNew2] = useState("");
+  const [pwChangeMsg, setPwChangeMsg] = useState("");
+
+  // 初期ロード：localStorage から復元 + sessionStorage で認証確認
   useEffect(() => {
     const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
     const savedList: string[] = JSON.parse(localStorage.getItem(USER_NAME_LIST_KEY) ?? "[]");
     setCustomNames(savedList);
     if (saved) {
-      setUserName(saved);
       setSelectValue(saved);
+      if (sessionStorage.getItem(`kintai_auth_${saved}`) === "1") {
+        setUserName(saved);
+        setIsAuthenticated(true);
+      }
     }
   }, []);
 
   useEffect(() => {
     const tick = () => {
-      const now = new Date();
       setToday(getLocalDateString());
-      setCurrentTime(now.toTimeString().slice(0, 8));
+      setCurrentTime(new Date().toTimeString().slice(0, 8));
     };
     tick();
     const id = setInterval(tick, 1000);
@@ -137,14 +155,27 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     );
   }, [records, customNames]);
 
+  // 名前選択：認証クリア
   const handleSelectChange = (value: string) => {
     if (value === OTHER_VALUE) {
       setSelectValue(OTHER_VALUE);
       setUserName("");
+      setIsAuthenticated(false);
+      setNewNameInput("");
+      setAuthPassword("");
+      setAuthError("");
     } else {
       setSelectValue(value);
-      setUserName(value);
-      localStorage.setItem(USER_NAME_KEY, value);
+      setUserName("");
+      setIsAuthenticated(false);
+      setAuthPassword("");
+      setAuthError("");
+      setIsFirstTimeUser(false);
+      // セッション内で認証済みなら即復元
+      if (sessionStorage.getItem(`kintai_auth_${value}`) === "1") {
+        setUserName(value);
+        setIsAuthenticated(true);
+      }
     }
   };
 
@@ -156,25 +187,86 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     localStorage.setItem(USER_NAME_LIST_KEY, JSON.stringify(updated));
     localStorage.setItem(USER_NAME_KEY, trimmed);
     setSelectValue(trimmed);
+    setNewNameInput("");
+    setIsAuthenticated(false);
+    setAuthPassword("");
+    setAuthError("");
+    setIsFirstTimeUser(false);
+  };
+
+  // ログイン / 初回登録
+  const handleAuthSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!authPassword || !selectValue || selectValue === OTHER_VALUE) return;
+    setIsAuthSubmitting(true);
+    setAuthError("");
+    try {
+      const res = await fetch("/api/auth/user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userName: selectValue, password: authPassword }),
+      });
+      const d = (await res.json()) as { ok?: boolean; firstTime?: boolean; message?: string };
+      if (!res.ok || !d.ok) {
+        setAuthError(d.message ?? "認証に失敗しました。");
+      } else {
+        sessionStorage.setItem(`kintai_auth_${selectValue}`, "1");
+        setIsAuthenticated(true);
+        setUserName(selectValue);
+        setAuthPassword("");
+        if (d.firstTime) setIsFirstTimeUser(true);
+      }
+    } catch {
+      setAuthError("通信エラーが発生しました。");
+    }
+    setIsAuthSubmitting(false);
+  };
+
+  const handleLogout = () => {
+    if (selectValue && selectValue !== OTHER_VALUE) {
+      sessionStorage.removeItem(`kintai_auth_${selectValue}`);
+    }
+    setIsAuthenticated(false);
+    setUserName("");
+    setSelectValue("");
+    setAuthPassword("");
+    setAuthError("");
+    setIsFirstTimeUser(false);
+    setShowPwChange(false);
+  };
+
+  const handlePwChange = async (e: FormEvent) => {
+    e.preventDefault();
+    if (pwNew !== pwNew2) { setPwChangeMsg("新しいパスワードが一致しません。"); return; }
+    if (pwNew.length < 4) { setPwChangeMsg("パスワードは4文字以上にしてください。"); return; }
+    setPwChangeMsg("");
+    const res = await fetch("/api/auth/user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userName, password: pwOld, newPassword: pwNew }),
+    });
+    const d = (await res.json()) as { ok?: boolean; message?: string };
+    if (!res.ok || !d.ok) {
+      setPwChangeMsg(d.message ?? "変更に失敗しました。");
+    } else {
+      setPwChangeMsg("パスワードを変更しました。");
+      setPwOld(""); setPwNew(""); setPwNew2("");
+      setTimeout(() => { setShowPwChange(false); setPwChangeMsg(""); }, 1500);
+    }
   };
 
   const statusOptions = useMemo(
-    () =>
-      Object.entries(statusLabels).map(([value, label]) => ({
-        value: value as AttendanceStatus,
-        label,
-      })),
+    () => Object.entries(statusLabels).map(([value, label]) => ({ value: value as AttendanceStatus, label })),
     [],
   );
 
   const todayRecord = records.find((record) => record.work_date === today) ?? null;
-
   const lastBreakEvent = [...todayEvents].reverse().find((e) => e.event_type === "break_start" || e.event_type === "break_end");
   const hasActiveBreak = lastBreakEvent?.event_type === "break_start";
   const lastOutingEvent = [...todayEvents].reverse().find((e) => e.event_type === "outing_start" || e.event_type === "outing_return");
   const hasActiveOuting = lastOutingEvent?.event_type === "outing_start";
-
   const isClockOut = !!todayRecord?.end_time;
+
   const missingClockOuts = records.filter(
     (r) => !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status),
   );
@@ -208,13 +300,9 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   };
 
   const submitAttendance = async (payload: AttendanceFormState) => {
-    if (!userName.trim()) {
-      setMessage("氏名を選択または入力してください。");
-      return;
-    }
+    if (!userName.trim()) { setMessage("氏名を選択または入力してください。"); return; }
     setIsSubmitting(true);
     setMessage("");
-
     const record = await postAttendance({
       action: "manual",
       userName: userName.trim(),
@@ -224,7 +312,6 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       status: payload.status,
       note: payload.note,
     });
-
     if (record) {
       upsertRecord(record);
       setMessage("勤怠データを保存しました。");
@@ -236,20 +323,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const reloadRecords = async () => {
     setIsRefreshing(true);
     setMessage("");
-
     const response = await fetch("/api/attendance", { method: "GET" });
-    const data = (await response.json()) as {
-      records?: AttendanceRecord[];
-      message?: string;
-    };
-
+    const data = (await response.json()) as { records?: AttendanceRecord[]; message?: string };
     if (!response.ok) {
       setMessage(data.message ?? "データの取得に失敗しました。");
-      setIsRefreshing(false);
-      return;
+    } else {
+      setRecords(data.records ?? []);
     }
-
-    setRecords(data.records ?? []);
     setIsRefreshing(false);
   };
 
@@ -330,341 +410,376 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     setIsSubmitting(false);
   };
 
+  // ── 認証前パネル ──────────────────────────────────────────────────────────
+  const needsAuth = selectValue && selectValue !== OTHER_VALUE && !isAuthenticated;
+
   return (
     <>
+      {/* ヘッダー */}
       <section className="dashboard-header">
         <div>
           <h1>勤怠管理</h1>
           <p className="description">日次の打刻と月次の勤怠をこの画面で管理します。</p>
         </div>
         <div className="header-right">
-          <label className="field field-inline">
-            氏名
-            <select
-              value={selectValue}
-              onChange={(event) => handleSelectChange(event.target.value)}
-            >
-              <option value="" disabled>選択してください</option>
-              {knownNames.map((name) => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-              <option value={OTHER_VALUE}>＋ 新しい名前を追加</option>
-            </select>
-          </label>
-          {selectValue === OTHER_VALUE && (
+          {!isAuthenticated ? (
+            <label className="field field-inline">
+              氏名
+              <select
+                value={selectValue}
+                onChange={(event) => handleSelectChange(event.target.value)}
+              >
+                <option value="" disabled>選択してください</option>
+                {knownNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+                <option value={OTHER_VALUE}>＋ 新しい名前を追加</option>
+              </select>
+            </label>
+          ) : (
+            <span className="user-badge">{userName}</span>
+          )}
+          {selectValue === OTHER_VALUE && !isAuthenticated && (
             <input
               type="text"
               className="name-input"
-              value={userName}
-              onChange={(event) => setUserName(event.target.value)}
-              onBlur={(event) => handleCustomNameCommit(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") handleCustomNameCommit(userName);
-              }}
+              value={newNameInput}
+              onChange={(e) => setNewNameInput(e.target.value)}
+              onBlur={(e) => handleCustomNameCommit(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleCustomNameCommit(newNameInput); }}
               placeholder="山田 太郎"
               autoFocus
             />
           )}
-          <button className="sub-button" onClick={() => void reloadRecords()}>
-            {isRefreshing ? "更新中..." : "最新に更新"}
-          </button>
+          {isAuthenticated && (
+            <>
+              <button className="sub-button" onClick={() => void reloadRecords()}>
+                {isRefreshing ? "更新中..." : "最新に更新"}
+              </button>
+              <button className="sub-button" onClick={handleLogout}>
+                ログアウト
+              </button>
+            </>
+          )}
         </div>
       </section>
 
-      <section className="summary-grid">
-        <article className="summary-card">
-          <span className="summary-label">本日の勤務状態</span>
-          <strong>{todayRecord ? statusLabels[todayRecord.status] : "未打刻"}</strong>
-          {todayRecord?.start_time && (
-            <span className="summary-sub">
-              {todayRecord.start_time} 〜 {todayRecord.end_time ?? "打刻中"}
-              {todayRecord.end_time && (
-                <> （{formatMinutes(calcWork(todayRecord.start_time, todayRecord.end_time).work)}）</>
-              )}
-            </span>
+      {/* 認証フォーム */}
+      {needsAuth && (
+        <section className="card" style={{ maxWidth: 420, margin: "0 auto" }}>
+          <p className="section-title">
+            {isFirstTimeUser ? "パスワードを設定してください（初回）" : `${selectValue} としてログイン`}
+          </p>
+          {isFirstTimeUser ? (
+            <p className="description" style={{ fontSize: "0.85rem" }}>
+              このアカウントは初めてのログインです。パスワードを設定します。
+            </p>
+          ) : (
+            <p className="description" style={{ fontSize: "0.85rem" }}>
+              初めてログインする場合はパスワードが新規登録されます。
+            </p>
           )}
-          {todayRecord?.overtime_start && (
-            <span className="summary-sub" style={{ color: "#c2410c" }}>
-              残業開始: {todayRecord.overtime_start}
-            </span>
-          )}
-        </article>
-        <article className="summary-card">
-          <span className="summary-label">当月の打刻日数</span>
-          <strong>{monthlyCount}日</strong>
-        </article>
-        <article className="summary-card">
-          <span className="summary-label">当月の総勤務時間</span>
-          <strong>{formatMinutes(monthlyWorkMinutes)}</strong>
-        </article>
-        <article className="summary-card">
-          <span className="summary-label">当月の残業時間</span>
-          <strong className={monthlyOvertimeMinutes > 0 ? "overtime-warn" : ""}>
-            {formatMinutes(monthlyOvertimeMinutes)}
-          </strong>
-        </article>
-        <article className="summary-card">
-          <span className="summary-label">当月のリモート勤務</span>
-          <strong>{remoteDays}日</strong>
-        </article>
-        {missingClockOuts.length > 0 && (
-          <article className="summary-card summary-card-warn">
-            <span className="summary-label">退勤漏れ</span>
-            <strong className="overtime-warn">{missingClockOuts.length}件</strong>
-            <span className="summary-sub">
-              最新: {missingClockOuts[0].work_date}
-            </span>
-          </article>
-        )}
-        <article className="summary-card">
-          <span className="summary-label">有給残日数</span>
-          <strong>{leaveBalance !== null ? `${leaveBalance.remaining}日` : "-"}</strong>
-          {leaveBalance && (
-            <span className="summary-sub">付与: {leaveBalance.total_granted}日 / 取得: {leaveBalance.total_used}日</span>
-          )}
-        </article>
-      </section>
+          <form onSubmit={handleAuthSubmit} className="form-grid">
+            <label className="field field-full">
+              パスワード
+              <input
+                type="password"
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                placeholder="パスワードを入力"
+                autoFocus
+              />
+            </label>
+            {authError && <p className="message message-error field-full">{authError}</p>}
+            <button className="button" type="submit" disabled={isAuthSubmitting || !authPassword}>
+              {isAuthSubmitting ? "確認中..." : "ログイン"}
+            </button>
+          </form>
+        </section>
+      )}
 
-      <section className="card card-tight">
-        <div className="tab-row">
-          <button type="button" className={activeTab === "stamp" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("stamp")}>
-            打刻
-          </button>
-          <button type="button" className={activeTab === "calendar" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("calendar")}>
-            カレンダー
-          </button>
-          <button type="button" className={activeTab === "history" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("history")}>
-            勤怠履歴
-          </button>
-        </div>
-
-        {activeTab === "stamp" ? (
-          <div>
-            <div className="stamp-panel stamp-panel-main">
-              <p className="stamp-title">本日の打刻</p>
-              <p className="stamp-date">{today}</p>
-              <p className="stamp-clock">{currentTime}</p>
-
-              {/* 主要打刻ボタン */}
-              <div className="stamp-actions">
-                <button
-                  type="button"
-                  className="button ghost-button stamp-btn"
-                  onClick={() => void handleClockIn()}
-                  disabled={isSubmitting || !!todayRecord}
-                  title={todayRecord ? "既に出勤済みです" : ""}
-                >
-                  出勤
-                </button>
-                <button
-                  type="button"
-                  className="button ghost-button stamp-btn stamp-btn-overtime"
-                  onClick={() => void handleOvertimeStart()}
-                  disabled={isSubmitting || !todayRecord || !!todayRecord.overtime_start || isClockOut}
-                  title={!todayRecord ? "先に出勤打刻が必要です" : ""}
-                >
-                  残業開始
-                </button>
-                <button
-                  type="button"
-                  className="button ghost-button stamp-btn"
-                  onClick={() => void handleClockOut()}
-                  disabled={isSubmitting || !todayRecord || isClockOut}
-                  title={isClockOut ? "既に退勤済みです" : ""}
-                >
-                  退勤
-                </button>
-              </div>
-
-              {/* サブ打刻ボタン */}
-              <div className="stamp-actions-sub">
-                {!hasActiveBreak ? (
-                  <button
-                    type="button"
-                    className="button ghost-button stamp-btn-sub"
-                    onClick={() => void postEvent("break_start")}
-                    disabled={isSubmitting || !todayRecord || isClockOut}
-                  >
-                    休憩開始
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="button stamp-btn-sub stamp-btn-break-end"
-                    onClick={() => void postEvent("break_end")}
-                    disabled={isSubmitting}
-                  >
-                    休憩終了
-                  </button>
+      {/* メインコンテンツ（認証後のみ表示） */}
+      {isAuthenticated && (
+        <>
+          {/* パスワード変更 */}
+          {showPwChange && (
+            <section className="card" style={{ maxWidth: 420, margin: "0 auto" }}>
+              <p className="section-title">パスワード変更</p>
+              <form onSubmit={handlePwChange} className="form-grid">
+                <label className="field field-full">
+                  現在のパスワード
+                  <input type="password" value={pwOld} onChange={(e) => setPwOld(e.target.value)} />
+                </label>
+                <label className="field field-full">
+                  新しいパスワード
+                  <input type="password" value={pwNew} onChange={(e) => setPwNew(e.target.value)} />
+                </label>
+                <label className="field field-full">
+                  新しいパスワード（確認）
+                  <input type="password" value={pwNew2} onChange={(e) => setPwNew2(e.target.value)} />
+                </label>
+                {pwChangeMsg && (
+                  <p className={`message field-full ${pwChangeMsg.includes("変更しました") ? "" : "message-error"}`}>
+                    {pwChangeMsg}
+                  </p>
                 )}
-                {!hasActiveOuting ? (
-                  <button
-                    type="button"
-                    className="button ghost-button stamp-btn-sub"
-                    onClick={() => void postEvent("outing_start")}
-                    disabled={isSubmitting || !todayRecord || isClockOut}
-                  >
-                    外出
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="button stamp-btn-sub stamp-btn-outing-return"
-                    onClick={() => void postEvent("outing_return")}
-                    disabled={isSubmitting}
-                  >
-                    外出戻り
-                  </button>
-                )}
-              </div>
+                <button className="button ghost-button" type="submit" disabled={!pwOld || !pwNew || !pwNew2}>
+                  変更する
+                </button>
+                <button className="button ghost-button" type="button" onClick={() => setShowPwChange(false)} style={{ gridColumn: "auto" }}>
+                  キャンセル
+                </button>
+              </form>
+            </section>
+          )}
 
-              {/* 本日のイベントタイムライン */}
-              {todayRecord && (
-                <div className="stamp-timeline">
-                  {[
-                    { time: todayRecord.start_time.slice(0, 5), label: "出勤", color: "#1e40af" },
-                    ...todayEvents.map((e) => ({ time: e.event_time.slice(0, 5), label: eventTypeLabels[e.event_type], color: undefined })),
-                    ...(todayRecord.overtime_start ? [{ time: todayRecord.overtime_start.slice(0, 5), label: "残業開始", color: "#c2410c" }] : []),
-                    ...(todayRecord.end_time ? [{ time: todayRecord.end_time.slice(0, 5), label: "退勤", color: "#1e40af" }] : []),
-                  ]
-                    .sort((a, b) => a.time.localeCompare(b.time))
-                    .map((item, i) => (
-                      <span key={i} className="stamp-timeline-item" style={item.color ? { color: item.color } : undefined}>
-                        {item.time} {item.label}
-                      </span>
-                    ))}
-                </div>
+          <section className="summary-grid">
+            <article className="summary-card">
+              <span className="summary-label">本日の勤務状態</span>
+              <strong>{todayRecord ? statusLabels[todayRecord.status] : "未打刻"}</strong>
+              {todayRecord?.start_time && (
+                <span className="summary-sub">
+                  {todayRecord.start_time} 〜 {todayRecord.end_time ?? "打刻中"}
+                  {todayRecord.end_time && (
+                    <> （{formatMinutes(calcWork(todayRecord.start_time, todayRecord.end_time).work)}）</>
+                  )}
+                </span>
               )}
-            </div>
+              {todayRecord?.overtime_start && (
+                <span className="summary-sub" style={{ color: "#c2410c" }}>
+                  残業開始: {todayRecord.overtime_start}
+                </span>
+              )}
+            </article>
+            <article className="summary-card">
+              <span className="summary-label">当月の打刻日数</span>
+              <strong>{monthlyCount}日</strong>
+            </article>
+            <article className="summary-card">
+              <span className="summary-label">当月の総勤務時間</span>
+              <strong>{formatMinutes(monthlyWorkMinutes)}</strong>
+            </article>
+            <article className="summary-card">
+              <span className="summary-label">当月の残業時間</span>
+              <strong className={monthlyOvertimeMinutes > 0 ? "overtime-warn" : ""}>
+                {formatMinutes(monthlyOvertimeMinutes)}
+              </strong>
+            </article>
+            <article className="summary-card">
+              <span className="summary-label">当月のリモート勤務</span>
+              <strong>{remoteDays}日</strong>
+            </article>
+            {missingClockOuts.length > 0 && (
+              <article className="summary-card summary-card-warn">
+                <span className="summary-label">退勤漏れ</span>
+                <strong className="overtime-warn">{missingClockOuts.length}件</strong>
+                <span className="summary-sub">最新: {missingClockOuts[0].work_date}</span>
+              </article>
+            )}
+            <article className="summary-card">
+              <span className="summary-label">有給残日数</span>
+              <strong>{leaveBalance !== null ? `${leaveBalance.remaining}日` : "-"}</strong>
+              {leaveBalance && (
+                <span className="summary-sub">付与: {leaveBalance.total_granted}日 / 取得: {leaveBalance.total_used}日</span>
+              )}
+            </article>
+          </section>
 
-            <div className="manual-form-toggle">
+          <section className="card card-tight">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div className="tab-row">
+                <button type="button" className={activeTab === "stamp" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("stamp")}>打刻</button>
+                <button type="button" className={activeTab === "calendar" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("calendar")}>カレンダー</button>
+                <button type="button" className={activeTab === "history" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("history")}>勤怠履歴</button>
+              </div>
               <button
                 type="button"
                 className="sub-button"
-                onClick={() => setShowManualForm((v) => !v)}
+                style={{ fontSize: "0.82rem" }}
+                onClick={() => { setShowPwChange((v) => !v); setPwChangeMsg(""); }}
               >
-                {showManualForm ? "▲ 手入力を閉じる" : "▼ 手入力で修正・休暇登録"}
+                パスワード変更
               </button>
             </div>
 
-            {showManualForm && (
-              <form className="form-grid manual-form" onSubmit={handleSubmit}>
-                <label className="field">
-                  勤務日
-                  <input
-                    type="date"
-                    value={form.workDate}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, workDate: event.target.value }))
-                    }
-                    required
-                  />
-                </label>
+            {activeTab === "stamp" ? (
+              <div>
+                <div className="stamp-panel stamp-panel-main">
+                  <p className="stamp-title">本日の打刻</p>
+                  <p className="stamp-date">{today}</p>
+                  <p className="stamp-clock">{currentTime}</p>
 
-                <label className="field">
-                  開始時刻
-                  <input
-                    type="time"
-                    value={form.startTime}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, startTime: event.target.value }))
-                    }
-                    required
-                  />
-                </label>
+                  {/* 主要打刻ボタン */}
+                  <div className="stamp-actions">
+                    <button
+                      type="button"
+                      className="button ghost-button stamp-btn"
+                      onClick={() => void handleClockIn()}
+                      disabled={isSubmitting || !!todayRecord}
+                      title={todayRecord ? "既に出勤済みです" : ""}
+                    >
+                      出勤
+                    </button>
+                    <button
+                      type="button"
+                      className="button ghost-button stamp-btn stamp-btn-overtime"
+                      onClick={() => void handleOvertimeStart()}
+                      disabled={isSubmitting || !todayRecord || !!todayRecord.overtime_start || isClockOut}
+                    >
+                      残業開始
+                    </button>
+                    <button
+                      type="button"
+                      className="button ghost-button stamp-btn"
+                      onClick={() => void handleClockOut()}
+                      disabled={isSubmitting || !todayRecord || isClockOut}
+                      title={isClockOut ? "既に退勤済みです" : ""}
+                    >
+                      退勤
+                    </button>
+                  </div>
 
-                <label className="field">
-                  終了時刻
-                  <input
-                    type="time"
-                    value={form.endTime}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, endTime: event.target.value }))
-                    }
-                  />
-                </label>
+                  {/* 休憩・外出ボタン */}
+                  <div className="stamp-actions-sub">
+                    {!hasActiveBreak ? (
+                      <button
+                        type="button"
+                        className="button ghost-button stamp-btn-sub"
+                        onClick={() => void postEvent("break_start")}
+                        disabled={isSubmitting || !todayRecord || isClockOut}
+                      >
+                        休憩開始
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button stamp-btn-sub stamp-btn-break-end"
+                        onClick={() => void postEvent("break_end")}
+                        disabled={isSubmitting}
+                      >
+                        休憩終了
+                      </button>
+                    )}
+                    {!hasActiveOuting ? (
+                      <button
+                        type="button"
+                        className="button ghost-button stamp-btn-sub"
+                        onClick={() => void postEvent("outing_start")}
+                        disabled={isSubmitting || !todayRecord || isClockOut}
+                      >
+                        外出
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button stamp-btn-sub stamp-btn-outing-return"
+                        onClick={() => void postEvent("outing_return")}
+                        disabled={isSubmitting}
+                      >
+                        外出戻り
+                      </button>
+                    )}
+                  </div>
 
-                <label className="field">
-                  勤務区分
-                  <select
-                    value={form.status}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, status: event.target.value as AttendanceStatus }))
-                    }
-                  >
-                    {statusOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                  {/* 本日のタイムライン */}
+                  {todayRecord && (
+                    <div className="stamp-timeline">
+                      {[
+                        { time: todayRecord.start_time.slice(0, 5), label: "出勤", color: "#1e40af" },
+                        ...todayEvents.map((e) => ({ time: e.event_time.slice(0, 5), label: eventTypeLabels[e.event_type], color: undefined })),
+                        ...(todayRecord.overtime_start ? [{ time: todayRecord.overtime_start.slice(0, 5), label: "残業開始", color: "#c2410c" }] : []),
+                        ...(todayRecord.end_time ? [{ time: todayRecord.end_time.slice(0, 5), label: "退勤", color: "#1e40af" }] : []),
+                      ]
+                        .sort((a, b) => a.time.localeCompare(b.time))
+                        .map((item, i) => (
+                          <span key={i} className="stamp-timeline-item" style={item.color ? { color: item.color } : undefined}>
+                            {item.time} {item.label}
+                          </span>
+                        ))}
+                    </div>
+                  )}
+                </div>
 
-                <label className="field field-full">
-                  備考
-                  <textarea
-                    value={form.note}
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, note: event.target.value }))
-                    }
-                    rows={3}
-                  />
-                </label>
+                <div className="manual-form-toggle">
+                  <button type="button" className="sub-button" onClick={() => setShowManualForm((v) => !v)}>
+                    {showManualForm ? "▲ 手入力を閉じる" : "▼ 手入力で修正・休暇登録"}
+                  </button>
+                </div>
 
-                <button className="button" type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "保存中..." : "手入力で保存"}
-                </button>
-              </form>
+                {showManualForm && (
+                  <form className="form-grid manual-form" onSubmit={handleSubmit}>
+                    <label className="field">
+                      勤務日
+                      <input type="date" value={form.workDate} onChange={(e) => setForm((c) => ({ ...c, workDate: e.target.value }))} required />
+                    </label>
+                    <label className="field">
+                      開始時刻
+                      <input type="time" value={form.startTime} onChange={(e) => setForm((c) => ({ ...c, startTime: e.target.value }))} required />
+                    </label>
+                    <label className="field">
+                      終了時刻
+                      <input type="time" value={form.endTime} onChange={(e) => setForm((c) => ({ ...c, endTime: e.target.value }))} />
+                    </label>
+                    <label className="field">
+                      勤務区分
+                      <select value={form.status} onChange={(e) => setForm((c) => ({ ...c, status: e.target.value as AttendanceStatus }))}>
+                        {statusOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="field field-full">
+                      備考
+                      <textarea value={form.note} onChange={(e) => setForm((c) => ({ ...c, note: e.target.value }))} rows={3} />
+                    </label>
+                    <button className="button" type="submit" disabled={isSubmitting}>
+                      {isSubmitting ? "保存中..." : "手入力で保存"}
+                    </button>
+                  </form>
+                )}
+              </div>
+            ) : activeTab === "calendar" ? (
+              <AttendanceCalendar userName={userName} />
+            ) : records.length === 0 ? (
+              <p className="description">まだデータがありません。</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>勤務日</th>
+                      <th>開始</th>
+                      <th>終了</th>
+                      <th>残業開始</th>
+                      <th>勤務時間</th>
+                      <th>残業時間</th>
+                      <th>区分</th>
+                      <th>備考</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {records.filter((r) => r.user_name === userName).map((record) => {
+                      const { work, overtime } = calcWork(record.start_time, record.end_time);
+                      return (
+                        <tr key={record.id}>
+                          <td>{record.work_date}</td>
+                          <td>{record.start_time}</td>
+                          <td>{record.end_time ?? "-"}</td>
+                          <td>{record.overtime_start ?? "-"}</td>
+                          <td>{record.end_time ? formatMinutes(work) : "-"}</td>
+                          <td className={overtime > 0 ? "overtime-warn" : ""}>{record.end_time ? formatMinutes(overtime) : "-"}</td>
+                          <td><span className="status-chip">{statusLabels[record.status]}</span></td>
+                          <td>{record.note ?? "-"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             )}
-          </div>
-        ) : activeTab === "calendar" ? (
-          <AttendanceCalendar userName={userName} />
-        ) : records.length === 0 ? (
-          <p className="description">まだデータがありません。</p>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>氏名</th>
-                  <th>勤務日</th>
-                  <th>開始</th>
-                  <th>終了</th>
-                  <th>残業開始</th>
-                  <th>勤務時間</th>
-                  <th>残業時間</th>
-                  <th>区分</th>
-                  <th>備考</th>
-                </tr>
-              </thead>
-              <tbody>
-                {records.map((record) => {
-                  const { work, overtime } = calcWork(record.start_time, record.end_time);
-                  return (
-                  <tr key={record.id}>
-                    <td>{record.user_name}</td>
-                    <td>{record.work_date}</td>
-                    <td>{record.start_time}</td>
-                    <td>{record.end_time ?? "-"}</td>
-                    <td>{record.overtime_start ?? "-"}</td>
-                    <td>{record.end_time ? formatMinutes(work) : "-"}</td>
-                    <td className={overtime > 0 ? "overtime-warn" : ""}>
-                      {record.end_time ? formatMinutes(overtime) : "-"}
-                    </td>
-                    <td>
-                      <span className="status-chip">{statusLabels[record.status]}</span>
-                    </td>
-                    <td>{record.note ?? "-"}</td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
 
-        {message ? <p className="message">{message}</p> : null}
-      </section>
+            {message ? <p className="message">{message}</p> : null}
+          </section>
+        </>
+      )}
     </>
   );
 }

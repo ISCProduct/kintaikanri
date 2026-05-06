@@ -118,6 +118,12 @@ export type Database = {
         };
         Relationships: [];
       };
+      user_profiles: {
+        Row: { user_name: string; password_hash: string; created_at: string };
+        Insert: { user_name: string; password_hash: string; created_at?: string };
+        Update: { user_name?: string; password_hash?: string; created_at?: string };
+        Relationships: [];
+      };
       attendance_events: {
         Row: {
           id: string;
