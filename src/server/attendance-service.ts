@@ -75,15 +75,18 @@ export async function clockIn(
 
   // Supabase: upsert で start_time のみセット（既存の start_time は上書きしない）
   const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase
+  await supabase
     .from("attendance_records")
     .upsert(
       { user_name: userName, work_date: workDate, start_time: startTime, status, note },
       { onConflict: "user_name,work_date", ignoreDuplicates: true },
-    )
+    );
+  const { data: rows, error } = await supabase
+    .from("attendance_records")
     .select("*")
-    .single();
-  return { data: data as AttendanceRecord | null, error: error ? { message: error.message } : null };
+    .eq("user_name", userName)
+    .eq("work_date", workDate);
+  return { data: (rows?.[0] ?? null) as AttendanceRecord | null, error: error ? { message: error.message } : null };
 }
 
 // ── 退勤打刻：既存レコードの end_time を更新 ─────────────────────────────
@@ -114,14 +117,15 @@ export async function clockOut(
 
   // Supabase
   const supabase = createSupabaseServerClient();
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from("attendance_records")
     .update({ end_time: endTime })
     .eq("user_name", userName)
     .eq("work_date", workDate)
-    .select("*")
-    .single();
-  return { data: data as AttendanceRecord | null, error: error ? { message: error.message } : null };
+    .select("*");
+  if (error) return { data: null, error: { message: error.message } };
+  if (!rows?.[0]) return { data: null, error: notFoundError("本日の出勤記録がありません。先に出勤打刻してください。") };
+  return { data: rows[0] as AttendanceRecord, error: null };
 }
 
 // ── 手入力フォーム：UPSERT（全フィールド上書き） ─────────────────────────
@@ -164,12 +168,11 @@ export async function upsertAttendanceRecord(
     status: input.status ?? "present",
     note: input.note || null,
   };
-  const { data, error } = await supabase
+  const { data: rows, error } = await supabase
     .from("attendance_records")
     .upsert(payload, { onConflict: "user_name,work_date" })
-    .select("*")
-    .single();
-  return { data: data as AttendanceRecord | null, error: error ? { message: error.message } : null };
+    .select("*");
+  return { data: (rows?.[0] ?? null) as AttendanceRecord | null, error: error ? { message: error.message } : null };
 }
 
 // ── 以下は従来どおり ──────────────────────────────────────────────────────
@@ -336,15 +339,15 @@ export async function recordOvertimeStart(
     return { data: rows[0], error: null };
   }
   if (shouldUseSupabase()) {
-    const { data, error } = await createSupabaseServerClient()
+    const { data: rows, error } = await createSupabaseServerClient()
       .from("attendance_records")
       .update({ overtime_start: overtimeStart })
       .eq("user_name", userName)
       .eq("work_date", workDate)
-      .select("*")
-      .single();
-    if (error || !data) return { data: null, error: { message: error?.message ?? "更新に失敗しました。" } };
-    return { data: data as AttendanceRecord, error: null };
+      .select("*");
+    if (error) return { data: null, error: { message: error.message } };
+    if (!rows?.[0]) return { data: null, error: notFoundError("本日の出勤レコードが見つかりません。先に出勤打刻をしてください。") };
+    return { data: rows[0] as AttendanceRecord, error: null };
   }
   return { data: null, error: { message: "データベース未設定です。" } };
 }

@@ -58,16 +58,16 @@ export async function createCorrectionRequest(input: CorrectionCreateInput): Pro
     );
     return { data: rows[0], error: null };
   }
-  const { data, error } = await createSupabaseServerClient()
+  const { data: rows, error } = await createSupabaseServerClient()
     .from("correction_requests")
     .insert({
       user_name: input.userName, target_date: input.targetDate,
       before_start: input.beforeStart ?? null, before_end: input.beforeEnd ?? null,
       after_start: input.afterStart, after_end: input.afterEnd ?? null, reason: input.reason,
     })
-    .select("*").single();
-  if (error || !data) throw new Error(error?.message ?? "作成に失敗しました。");
-  return { data: data as CorrectionRequest, error: null };
+    .select("*");
+  if (error || !rows?.[0]) throw new Error(error?.message ?? "作成に失敗しました。");
+  return { data: rows[0] as CorrectionRequest, error: null };
 }
 
 export async function approveCorrectionRequest(
@@ -91,12 +91,12 @@ export async function approveCorrectionRequest(
     if (!rows[0]) return notFound();
     req = rows[0];
   } else {
-    const { data, error } = await createSupabaseServerClient()
+    const { data: rows, error } = await createSupabaseServerClient()
       .from("correction_requests")
       .update({ status, approver_name: approverName, approver_comment: approverComment ?? null, updated_at: new Date().toISOString() })
-      .eq("id", id).select("*").single();
-    if (error || !data) return notFound();
-    req = data as CorrectionRequest;
+      .eq("id", id).select("*");
+    if (error || !rows?.[0]) return notFound();
+    req = rows[0] as CorrectionRequest;
   }
 
   // 承認時は勤怠レコードを自動更新
