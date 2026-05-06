@@ -209,6 +209,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       } else {
         sessionStorage.setItem(`kintai_auth_${selectValue}`, "1");
         if (d.isManager) sessionStorage.setItem("kintai_manager_authed", "1");
+        localStorage.setItem(USER_NAME_KEY, selectValue);
         setIsAuthenticated(true);
         setUserName(selectValue);
         setAuthPassword("");

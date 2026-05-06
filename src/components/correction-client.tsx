@@ -22,6 +22,7 @@ type Props = { initialRequests: CorrectionRequest[] };
 export function CorrectionClient({ initialRequests }: Props) {
   const [requests, setRequests] = useState(initialRequests);
   const [userName, setUserName] = useState("");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [targetDate, setTargetDate] = useState(getLocalDateString());
   const [afterStart, setAfterStart] = useState("");
   const [afterEnd, setAfterEnd] = useState("");
@@ -32,7 +33,10 @@ export function CorrectionClient({ initialRequests }: Props) {
 
   useEffect(() => {
     const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
-    if (saved) setUserName(saved);
+    if (saved) {
+      setUserName(saved);
+      setIsAuthenticated(sessionStorage.getItem(`kintai_auth_${saved}`) === "1");
+    }
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {
@@ -61,6 +65,26 @@ export function CorrectionClient({ initialRequests }: Props) {
   };
 
   const myRequests = requests.filter((r) => !userName || r.user_name === userName.trim());
+
+  if (!isAuthenticated) {
+    return (
+      <>
+        <section className="dashboard-header">
+          <div>
+            <h1>勤怠修正申請</h1>
+            <p className="description">打刻ミス・漏れの修正を申請します。承認後に自動反映されます。</p>
+          </div>
+        </section>
+        <section className="card" style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
+          <p className="section-title">ログインが必要です</p>
+          <p className="description">勤怠画面でPINログインしてからご利用ください。</p>
+          <a href="/" className="button" style={{ display: "inline-block", marginTop: "0.5rem", textDecoration: "none" }}>
+            勤怠画面へ
+          </a>
+        </section>
+      </>
+    );
+  }
 
   return (
     <>
