@@ -59,6 +59,17 @@ create table if not exists monthly_closings (
   closed_at timestamptz not null default now()
 );
 
+-- 休憩・外出イベント
+create table if not exists attendance_events (
+  id uuid primary key default gen_random_uuid(),
+  user_name text not null,
+  work_date date not null,
+  event_type text not null check (event_type in ('break_start', 'break_end', 'outing_start', 'outing_return')),
+  event_time time not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists attendance_events_user_date on attendance_events (user_name, work_date);
+
 -- 勤怠修正申請
 create table if not exists correction_requests (
   id uuid primary key default gen_random_uuid(),

@@ -118,6 +118,33 @@ export type Database = {
         };
         Relationships: [];
       };
+      attendance_events: {
+        Row: {
+          id: string;
+          user_name: string;
+          work_date: string;
+          event_type: "break_start" | "break_end" | "outing_start" | "outing_return";
+          event_time: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_name: string;
+          work_date: string;
+          event_type: "break_start" | "break_end" | "outing_start" | "outing_return";
+          event_time: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_name?: string;
+          work_date?: string;
+          event_type?: "break_start" | "break_end" | "outing_start" | "outing_return";
+          event_time?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       attendance_records: {
         Row: {
           id: string;

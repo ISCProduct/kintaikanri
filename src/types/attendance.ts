@@ -11,3 +11,14 @@ export type AttendanceRecord = {
   note: string | null;
   created_at: string;
 };
+
+export type AttendanceEventType = "break_start" | "break_end" | "outing_start" | "outing_return";
+
+export type AttendanceEvent = {
+  id: string;
+  user_name: string;
+  work_date: string;
+  event_type: AttendanceEventType;
+  event_time: string;
+  created_at: string;
+};

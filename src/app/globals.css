@@ -264,6 +264,48 @@ h1 {
   opacity: 0.4;
 }
 
+.stamp-actions-sub {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.stamp-btn-sub {
+  font-size: 0.95rem;
+  padding: 0.6rem 1.4rem;
+  font-weight: 600;
+  min-width: 110px;
+}
+
+.stamp-btn-break-end {
+  border-color: #fde68a;
+  background: #fefce8;
+  color: #92400e;
+}
+
+.stamp-btn-outing-return {
+  border-color: #a7f3d0;
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.stamp-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  justify-content: center;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  width: 100%;
+}
+
+.stamp-timeline-item {
+  font-size: 0.82rem;
+  color: #475569;
+  white-space: nowrap;
+}
+
 .manual-form-toggle {
   margin-top: 1rem;
   text-align: center;

@@ -1,9 +1,16 @@
 "use client";
 
 import { useMemo, useState, useEffect, type FormEvent } from "react";
-import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
+import type { AttendanceRecord, AttendanceStatus, AttendanceEvent, AttendanceEventType } from "@/types/attendance";
 import type { PaidLeaveSummary } from "@/types/rules";
 import { AttendanceCalendar } from "@/components/attendance-calendar";
+
+const eventTypeLabels: Record<AttendanceEventType, string> = {
+  break_start: "休憩開始",
+  break_end: "休憩終了",
+  outing_start: "外出",
+  outing_return: "外出戻り",
+};
 
 function getLocalDateString() {
   const d = new Date();
@@ -77,6 +84,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [showManualForm, setShowManualForm] = useState(false);
   const [leaveBalance, setLeaveBalance] = useState<PaidLeaveSummary | null>(null);
   const [currentTime, setCurrentTime] = useState<string>("");
+  const [todayEvents, setTodayEvents] = useState<AttendanceEvent[]>([]);
 
   useEffect(() => {
     const saved = localStorage.getItem(USER_NAME_KEY) ?? "";
@@ -106,6 +114,21 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       .then((d: { balance?: PaidLeaveSummary }) => setLeaveBalance(d.balance ?? null))
       .catch(() => setLeaveBalance(null));
   }, [userName]);
+
+  const fetchTodayEvents = async (uname: string, date: string) => {
+    try {
+      const res = await fetch(`/api/attendance/events?userName=${encodeURIComponent(uname)}&workDate=${date}`);
+      const d = (await res.json()) as { events?: AttendanceEvent[] };
+      setTodayEvents(d.events ?? []);
+    } catch {
+      setTodayEvents([]);
+    }
+  };
+
+  useEffect(() => {
+    if (!userName) { setTodayEvents([]); return; }
+    void fetchTodayEvents(userName, today);
+  }, [userName, today]);
 
   const knownNames = useMemo(() => {
     const fromRecords = records.map((r) => r.user_name).filter(Boolean);
@@ -145,6 +168,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   );
 
   const todayRecord = records.find((record) => record.work_date === today) ?? null;
+
+  const lastBreakEvent = [...todayEvents].reverse().find((e) => e.event_type === "break_start" || e.event_type === "break_end");
+  const hasActiveBreak = lastBreakEvent?.event_type === "break_start";
+  const lastOutingEvent = [...todayEvents].reverse().find((e) => e.event_type === "outing_start" || e.event_type === "outing_return");
+  const hasActiveOuting = lastOutingEvent?.event_type === "outing_start";
+
+  const isClockOut = !!todayRecord?.end_time;
   const missingClockOuts = records.filter(
     (r) => !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status),
   );
@@ -257,6 +287,31 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       endTime: now.toTimeString().slice(0, 5),
     });
     if (record) { upsertRecord(record); setMessage("退勤を記録しました。"); }
+    setIsSubmitting(false);
+  };
+
+  const postEvent = async (eventType: AttendanceEventType) => {
+    if (!userName.trim()) { setMessage("氏名を選択または入力してください。"); return; }
+    setIsSubmitting(true);
+    setMessage("");
+    const now = new Date();
+    const res = await fetch("/api/attendance/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userName: userName.trim(),
+        workDate: getLocalDateString(),
+        eventType,
+        eventTime: now.toTimeString().slice(0, 5),
+      }),
+    });
+    const d = (await res.json()) as { event?: AttendanceEvent; message?: string };
+    if (!res.ok) {
+      setMessage(d.message ?? "記録に失敗しました。");
+    } else if (d.event) {
+      setTodayEvents((prev) => [...prev, d.event!]);
+      setMessage(`${eventTypeLabels[eventType]}を記録しました。`);
+    }
     setIsSubmitting(false);
   };
 
@@ -389,6 +444,8 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               <p className="stamp-title">本日の打刻</p>
               <p className="stamp-date">{today}</p>
               <p className="stamp-clock">{currentTime}</p>
+
+              {/* 主要打刻ボタン */}
               <div className="stamp-actions">
                 <button
                   type="button"
@@ -403,7 +460,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                   type="button"
                   className="button ghost-button stamp-btn stamp-btn-overtime"
                   onClick={() => void handleOvertimeStart()}
-                  disabled={isSubmitting || !todayRecord}
+                  disabled={isSubmitting || !todayRecord || !!todayRecord.overtime_start || isClockOut}
                   title={!todayRecord ? "先に出勤打刻が必要です" : ""}
                 >
                   残業開始
@@ -412,11 +469,72 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                   type="button"
                   className="button ghost-button stamp-btn"
                   onClick={() => void handleClockOut()}
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !todayRecord || isClockOut}
+                  title={isClockOut ? "既に退勤済みです" : ""}
                 >
                   退勤
                 </button>
               </div>
+
+              {/* サブ打刻ボタン */}
+              <div className="stamp-actions-sub">
+                {!hasActiveBreak ? (
+                  <button
+                    type="button"
+                    className="button ghost-button stamp-btn-sub"
+                    onClick={() => void postEvent("break_start")}
+                    disabled={isSubmitting || !todayRecord || isClockOut}
+                  >
+                    休憩開始
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button stamp-btn-sub stamp-btn-break-end"
+                    onClick={() => void postEvent("break_end")}
+                    disabled={isSubmitting}
+                  >
+                    休憩終了
+                  </button>
+                )}
+                {!hasActiveOuting ? (
+                  <button
+                    type="button"
+                    className="button ghost-button stamp-btn-sub"
+                    onClick={() => void postEvent("outing_start")}
+                    disabled={isSubmitting || !todayRecord || isClockOut}
+                  >
+                    外出
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button stamp-btn-sub stamp-btn-outing-return"
+                    onClick={() => void postEvent("outing_return")}
+                    disabled={isSubmitting}
+                  >
+                    外出戻り
+                  </button>
+                )}
+              </div>
+
+              {/* 本日のイベントタイムライン */}
+              {todayRecord && (
+                <div className="stamp-timeline">
+                  {[
+                    { time: todayRecord.start_time.slice(0, 5), label: "出勤", color: "#1e40af" },
+                    ...todayEvents.map((e) => ({ time: e.event_time.slice(0, 5), label: eventTypeLabels[e.event_type], color: undefined })),
+                    ...(todayRecord.overtime_start ? [{ time: todayRecord.overtime_start.slice(0, 5), label: "残業開始", color: "#c2410c" }] : []),
+                    ...(todayRecord.end_time ? [{ time: todayRecord.end_time.slice(0, 5), label: "退勤", color: "#1e40af" }] : []),
+                  ]
+                    .sort((a, b) => a.time.localeCompare(b.time))
+                    .map((item, i) => (
+                      <span key={i} className="stamp-timeline-item" style={item.color ? { color: item.color } : undefined}>
+                        {item.time} {item.label}
+                      </span>
+                    ))}
+                </div>
+              )}
             </div>
 
             <div className="manual-form-toggle">
