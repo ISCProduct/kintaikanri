@@ -2,6 +2,7 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import type { CorrectionRequest, CorrectionStatus } from "@/types/correction";
+import type { AttendanceRecord } from "@/types/attendance";
 
 const USER_NAME_KEY = "kintai_user_name";
 
@@ -12,18 +13,14 @@ const statusClass: Record<CorrectionStatus, string> = {
   pending: "chip-pending", approved: "chip-approved", rejected: "chip-rejected",
 };
 
-function getLocalDateString() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 type Props = { initialRequests: CorrectionRequest[] };
 
 export function CorrectionClient({ initialRequests }: Props) {
   const [requests, setRequests] = useState(initialRequests);
   const [userName, setUserName] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [targetDate, setTargetDate] = useState(getLocalDateString());
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [selectedRecordId, setSelectedRecordId] = useState("");
   const [afterStart, setAfterStart] = useState("");
   const [afterEnd, setAfterEnd] = useState("");
   const [reason, setReason] = useState("");
@@ -39,22 +36,54 @@ export function CorrectionClient({ initialRequests }: Props) {
     }
   }, []);
 
+  // 認証後に勤怠記録（退勤済みのみ）を取得
+  useEffect(() => {
+    if (!isAuthenticated || !userName) return;
+    void fetch("/api/attendance")
+      .then((r) => r.json())
+      .then((d: { records?: AttendanceRecord[] }) => {
+        const completed = (d.records ?? []).filter(
+          (r) => r.user_name === userName && r.end_time,
+        );
+        setAttendanceRecords(completed);
+      })
+      .catch(() => setAttendanceRecords([]));
+  }, [isAuthenticated, userName]);
+
+  const selectedRecord = attendanceRecords.find((r) => r.id === selectedRecordId) ?? null;
+
+  const handleRecordSelect = (id: string) => {
+    setSelectedRecordId(id);
+    setAfterStart("");
+    setAfterEnd("");
+    setMessage("");
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!userName.trim()) { setMessage("氏名をメインページで設定してください。"); setMessageType("error"); return; }
+    if (!selectedRecord) { setMessage("修正対象の勤怠記録を選択してください。"); setMessageType("error"); return; }
     setIsSubmitting(true); setMessage("");
 
     const res = await fetch("/api/correction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userName: userName.trim(), targetDate, afterStart, afterEnd: afterEnd || undefined, reason }),
+      body: JSON.stringify({
+        userName: userName.trim(),
+        targetDate: selectedRecord.work_date,
+        beforeStart: selectedRecord.start_time,
+        beforeEnd: selectedRecord.end_time,
+        afterStart,
+        afterEnd: afterEnd || undefined,
+        reason,
+      }),
     });
     const data = (await res.json()) as { request?: CorrectionRequest; message?: string };
     if (!res.ok) { setMessage(data.message ?? "申請に失敗しました。"); setMessageType("error"); }
     else {
       if (data.request) setRequests((p) => [data.request!, ...p]);
       setMessage("修正申請を提出しました。"); setMessageType("success");
-      setAfterStart(""); setAfterEnd(""); setReason("");
+      setSelectedRecordId(""); setAfterStart(""); setAfterEnd(""); setReason("");
     }
     setIsSubmitting(false);
   };
@@ -98,29 +127,73 @@ export function CorrectionClient({ initialRequests }: Props) {
 
       <section className="card">
         <h2 className="section-title">新規修正申請</h2>
-        <form className="form-grid" onSubmit={handleSubmit}>
-          <label className="field">
-            対象日
-            <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} required />
-          </label>
-          <div />
-          <label className="field">
-            修正後 出勤時刻
-            <input type="time" value={afterStart} onChange={(e) => setAfterStart(e.target.value)} required />
-          </label>
-          <label className="field">
-            修正後 退勤時刻
-            <input type="time" value={afterEnd} onChange={(e) => setAfterEnd(e.target.value)} />
-          </label>
-          <label className="field field-full">
-            修正理由
-            <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3}
-              placeholder="例: 出勤打刻を忘れたため" required />
-          </label>
-          <button className="button" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? "申請中..." : "申請する"}
-          </button>
-        </form>
+
+        {attendanceRecords.length === 0 ? (
+          <p className="description">退勤まで記録された勤怠データがありません。</p>
+        ) : (
+          <form className="form-grid" onSubmit={handleSubmit}>
+            {/* 対象レコード選択 */}
+            <label className="field field-full">
+              修正対象の勤怠日を選択
+              <select
+                value={selectedRecordId}
+                onChange={(e) => handleRecordSelect(e.target.value)}
+                required
+              >
+                <option value="" disabled>日付を選択してください</option>
+                {attendanceRecords.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.work_date}（出勤 {r.start_time.slice(0, 5)} 〜 退勤 {r.end_time!.slice(0, 5)}）
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* 現在の打刻（選択後に表示） */}
+            {selectedRecord && (
+              <div className="field field-full" style={{ background: "var(--surface-2, #f8f9fa)", borderRadius: "0.5rem", padding: "0.75rem 1rem", fontSize: "0.9rem" }}>
+                <span style={{ fontWeight: 600, display: "block", marginBottom: "0.25rem" }}>現在の打刻</span>
+                <span>出勤：{selectedRecord.start_time.slice(0, 5)}　／　退勤：{selectedRecord.end_time!.slice(0, 5)}</span>
+              </div>
+            )}
+
+            {/* 修正後の時刻 */}
+            <label className="field">
+              修正後 出勤時刻
+              <input
+                type="time"
+                value={afterStart}
+                onChange={(e) => setAfterStart(e.target.value)}
+                disabled={!selectedRecord}
+                required
+              />
+            </label>
+            <label className="field">
+              修正後 退勤時刻
+              <input
+                type="time"
+                value={afterEnd}
+                onChange={(e) => setAfterEnd(e.target.value)}
+                disabled={!selectedRecord}
+              />
+            </label>
+
+            <label className="field field-full">
+              修正理由
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={3}
+                placeholder="例: 出勤打刻を忘れたため"
+                disabled={!selectedRecord}
+                required
+              />
+            </label>
+            <button className="button" type="submit" disabled={isSubmitting || !selectedRecord}>
+              {isSubmitting ? "申請中..." : "申請する"}
+            </button>
+          </form>
+        )}
         {message && <p className={messageType === "error" ? "message message-error" : "message"}>{message}</p>}
       </section>
 
