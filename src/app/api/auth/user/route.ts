@@ -31,7 +31,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, firstTime: false, isManager: result.isManager });
   } catch (error) {
     if (isSupabaseConfigurationError(error)) {
-      return NextResponse.json({ ok: true, firstTime: false, isManager: false });
+      // Supabase未設定はローカル開発のみ許容。本番環境では認証を拒否する。
+      if (process.env.NODE_ENV === "development") {
+        return NextResponse.json({ ok: true, firstTime: false, isManager: false });
+      }
+      return NextResponse.json({ message: "認証サービスに接続できません。管理者に連絡してください。" }, { status: 503 });
     }
     const message = error instanceof Error ? error.message : "不明なエラー";
     return NextResponse.json({ message }, { status: 500 });
