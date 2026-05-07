@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listUserProfiles, setManagerRole, adminCreateUser } from "@/server/user-profile-service";
+import { listUserProfiles, setManagerRole, adminCreateUser, adminResetPin } from "@/server/user-profile-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
 
 export async function GET() {
@@ -46,13 +46,27 @@ export async function POST(request: Request) {
 type PatchPayload = {
   userName?: string;
   isManager?: boolean;
+  newPin?: string;
 };
 
 export async function PATCH(request: Request) {
   try {
-    const { userName, isManager } = (await request.json()) as PatchPayload;
-    if (!userName || isManager === undefined) {
-      return NextResponse.json({ message: "userName と isManager は必須です。" }, { status: 400 });
+    const { userName, isManager, newPin } = (await request.json()) as PatchPayload;
+    if (!userName) {
+      return NextResponse.json({ message: "userName は必須です。" }, { status: 400 });
+    }
+
+    if (newPin !== undefined) {
+      if (newPin.length < 4) {
+        return NextResponse.json({ message: "PINは4桁以上にしてください。" }, { status: 400 });
+      }
+      const result = await adminResetPin(userName, newPin);
+      if (!result.ok) return NextResponse.json({ message: result.message }, { status: 400 });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (isManager === undefined) {
+      return NextResponse.json({ message: "isManager または newPin が必要です。" }, { status: 400 });
     }
     await setManagerRole(userName, isManager);
     return NextResponse.json({ ok: true });

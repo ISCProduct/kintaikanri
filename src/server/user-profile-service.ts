@@ -131,6 +131,32 @@ export async function listUserProfiles(): Promise<UserProfile[]> {
   return [];
 }
 
+export async function adminResetPin(userName: string, newPin: string): Promise<{ ok: boolean; message?: string }> {
+  const hash = hashPin(newPin);
+
+  if (hasDatabaseUrl()) {
+    const pool = getPgPool();
+    const { rowCount } = await pool.query(
+      "update user_profiles set pin_hash = $1 where user_name = $2",
+      [hash, userName],
+    );
+    if (!rowCount) return { ok: false, message: "ユーザーが見つかりません。" };
+    return { ok: true };
+  }
+
+  if (shouldUseSupabase()) {
+    const supabase = createSupabaseServerClient();
+    const { error } = await supabase
+      .from("user_profiles")
+      .update({ pin_hash: hash })
+      .eq("user_name", userName);
+    if (error) return { ok: false, message: `PIN再設定に失敗しました: ${error.message}` };
+    return { ok: true };
+  }
+
+  return { ok: true };
+}
+
 export async function setManagerRole(userName: string, isManager: boolean): Promise<void> {
   if (hasDatabaseUrl()) {
     await getPgPool().query(

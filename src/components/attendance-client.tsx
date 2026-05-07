@@ -77,6 +77,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [selectValue, setSelectValue] = useState<string>("");
   const [newNameInput, setNewNameInput] = useState<string>("");
   const [customNames, setCustomNames] = useState<string[]>([]);
+  const [registeredUsers, setRegisteredUsers] = useState<string[]>([]);
   const [records, setRecords] = useState<AttendanceRecord[]>(initialRecords);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
@@ -99,6 +100,16 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [pinNew, setPinNew] = useState("");
   const [pinNew2, setPinNew2] = useState("");
   const [pinChangeMsg, setPinChangeMsg] = useState("");
+
+  // ユーザー管理に登録されたユーザー一覧を取得
+  useEffect(() => {
+    void fetch("/api/admin/users")
+      .then((r) => r.json())
+      .then((d: { users?: { user_name: string }[] }) => {
+        setRegisteredUsers((d.users ?? []).map((u) => u.user_name));
+      })
+      .catch(() => setRegisteredUsers([]));
+  }, []);
 
   // 初期ロード：localStorage から復元 + sessionStorage で認証確認
   useEffect(() => {
@@ -149,10 +160,10 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
   const knownNames = useMemo(() => {
     const fromRecords = records.map((r) => r.user_name).filter(Boolean);
-    return Array.from(new Set([...customNames, ...fromRecords])).sort((a, b) =>
+    return Array.from(new Set([...registeredUsers, ...customNames, ...fromRecords])).sort((a, b) =>
       a.localeCompare(b, "ja"),
     );
-  }, [records, customNames]);
+  }, [records, customNames, registeredUsers]);
 
   // 名前選択：認証クリア
   const handleSelectChange = (value: string) => {

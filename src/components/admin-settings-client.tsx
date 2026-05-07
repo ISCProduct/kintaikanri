@@ -42,6 +42,11 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
   const [newUserPin, setNewUserPin] = useState("");
   const [newUserPin2, setNewUserPin2] = useState("");
   const [newUserMsg, setNewUserMsg] = useState("");
+  const [pinResetTarget, setPinResetTarget] = useState<string | null>(null);
+  const [pinResetValue, setPinResetValue] = useState("");
+  const [pinResetValue2, setPinResetValue2] = useState("");
+  const [pinResetMsg, setPinResetMsg] = useState("");
+  const [pinResetting, setPinResetting] = useState(false);
 
   const showMsg = (text: string, type: "success" | "error" = "success") => {
     setMessage(text);
@@ -168,6 +173,33 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
       const d2 = (await r2.json()) as { users?: UserProfile[] };
       setUsers(d2.users ?? []);
     }
+  };
+
+  const handlePinReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pinResetTarget) return;
+    if (pinResetValue !== pinResetValue2) { setPinResetMsg("PINが一致しません。"); return; }
+    if (pinResetValue.length < 4) { setPinResetMsg("PINは4桁以上にしてください。"); return; }
+    setPinResetting(true);
+    setPinResetMsg("");
+    const res = await fetch("/api/admin/users", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userName: pinResetTarget, newPin: pinResetValue }),
+    });
+    const d = (await res.json()) as { ok?: boolean; message?: string };
+    if (!res.ok || !d.ok) {
+      setPinResetMsg(d.message ?? "再設定に失敗しました。");
+    } else {
+      setPinResetMsg("PINを再設定しました。");
+      setTimeout(() => {
+        setPinResetTarget(null);
+        setPinResetValue("");
+        setPinResetValue2("");
+        setPinResetMsg("");
+      }, 1500);
+    }
+    setPinResetting(false);
   };
 
   const handleToggleManager = async (userName: string, isManager: boolean) => {
@@ -426,25 +458,90 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
               </thead>
               <tbody>
                 {users.map((u) => (
-                  <tr key={u.user_name}>
-                    <td>{u.user_name}</td>
-                    <td>
-                      {u.is_manager ? (
-                        <span className="status-chip chip-approved">管理職</span>
-                      ) : (
-                        <span className="status-chip">一般</span>
-                      )}
-                    </td>
-                    <td>
-                      <button
-                        className={u.is_manager ? "reject-button" : "approve-button"}
-                        disabled={togglingUser === u.user_name}
-                        onClick={() => void handleToggleManager(u.user_name, !u.is_manager)}
-                      >
-                        {u.is_manager ? "管理職解除" : "管理職に設定"}
-                      </button>
-                    </td>
-                  </tr>
+                  <>
+                    <tr key={u.user_name}>
+                      <td>{u.user_name}</td>
+                      <td>
+                        {u.is_manager ? (
+                          <span className="status-chip chip-approved">管理職</span>
+                        ) : (
+                          <span className="status-chip">一般</span>
+                        )}
+                      </td>
+                      <td style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                        <button
+                          className={u.is_manager ? "reject-button" : "approve-button"}
+                          disabled={togglingUser === u.user_name}
+                          onClick={() => void handleToggleManager(u.user_name, !u.is_manager)}
+                        >
+                          {u.is_manager ? "管理職解除" : "管理職に設定"}
+                        </button>
+                        <button
+                          className="sub-button"
+                          onClick={() => {
+                            setPinResetTarget(pinResetTarget === u.user_name ? null : u.user_name);
+                            setPinResetValue("");
+                            setPinResetValue2("");
+                            setPinResetMsg("");
+                          }}
+                        >
+                          PIN再設定
+                        </button>
+                      </td>
+                    </tr>
+                    {pinResetTarget === u.user_name && (
+                      <tr key={`${u.user_name}-pin`}>
+                        <td colSpan={3}>
+                          <form onSubmit={(e) => void handlePinReset(e)} style={{ display: "flex", gap: "0.5rem", alignItems: "flex-end", flexWrap: "wrap", padding: "0.5rem 0" }}>
+                            <label className="field field-inline" style={{ margin: 0 }}>
+                              新しいPIN
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={8}
+                                value={pinResetValue}
+                                onChange={(e) => setPinResetValue(e.target.value.replace(/\D/g, ""))}
+                                placeholder="0000"
+                                style={{ textAlign: "center", letterSpacing: "0.3em", width: "7rem" }}
+                                autoFocus
+                              />
+                            </label>
+                            <label className="field field-inline" style={{ margin: 0 }}>
+                              確認
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={8}
+                                value={pinResetValue2}
+                                onChange={(e) => setPinResetValue2(e.target.value.replace(/\D/g, ""))}
+                                placeholder="0000"
+                                style={{ textAlign: "center", letterSpacing: "0.3em", width: "7rem" }}
+                              />
+                            </label>
+                            <button
+                              className="button ghost-button"
+                              type="submit"
+                              disabled={pinResetting || pinResetValue.length < 4 || !pinResetValue2}
+                            >
+                              {pinResetting ? "設定中..." : "確定"}
+                            </button>
+                            <button
+                              className="sub-button"
+                              type="button"
+                              onClick={() => { setPinResetTarget(null); setPinResetMsg(""); }}
+                            >
+                              キャンセル
+                            </button>
+                            {pinResetMsg && (
+                              <span className={pinResetMsg.includes("再設定しました") ? "message" : "message message-error"} style={{ width: "100%" }}>
+                                {pinResetMsg}
+                              </span>
+                            )}
+                          </form>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))}
               </tbody>
             </table>
