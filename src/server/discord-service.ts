@@ -10,15 +10,20 @@ async function getWebhookUrl(): Promise<string | null> {
       return rows[0]?.value || null;
     }
     if (shouldUseSupabase()) {
-      const { data } = await createSupabaseServerClient()
+      const { data, error } = await createSupabaseServerClient()
         .from("system_rules")
         .select("value")
         .eq("key", "discord_webhook_url");
+      if (error) {
+        console.error("[Discord] system_rules読み取りエラー:", error.message);
+        return null;
+      }
       const val = (data?.[0] as { value: string } | undefined)?.value;
+      if (!val) console.warn("[Discord] discord_webhook_urlが未設定またはDB未登録です");
       return val || null;
     }
-  } catch {
-    // webhook URL 取得失敗は無視
+  } catch (e) {
+    console.error("[Discord] getWebhookUrl例外:", e);
   }
   return null;
 }
@@ -57,12 +62,15 @@ export async function notifyDiscord(
   const content = `${emoji} **${userName}** が ${label} しました　\`${time}\`　（${workDate}）`;
 
   try {
-    await fetch(url, {
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content }),
     });
-  } catch {
-    // 通知失敗は無視（打刻処理には影響させない）
+    if (!res.ok) {
+      console.error(`[Discord] Webhook送信失敗: HTTP ${res.status} - ${await res.text()}`);
+    }
+  } catch (e) {
+    console.error("[Discord] Webhook送信例外:", e);
   }
 }
