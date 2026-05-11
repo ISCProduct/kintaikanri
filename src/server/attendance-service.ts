@@ -75,12 +75,13 @@ export async function clockIn(
 
   // Supabase: upsert で start_time のみセット（既存の start_time は上書きしない）
   const supabase = createSupabaseServerClient();
-  await supabase
+  const { error: upsertError } = await supabase
     .from("attendance_records")
     .upsert(
       { user_name: userName, work_date: workDate, start_time: startTime, status, note },
       { onConflict: "user_name,work_date", ignoreDuplicates: true },
     );
+  if (upsertError) return { data: null, error: { message: upsertError.message } };
   const { data: rows, error } = await supabase
     .from("attendance_records")
     .select("*")
