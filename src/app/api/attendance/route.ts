@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         payload.note,
       );
       if (error) return NextResponse.json({ message: error.message }, { status: 400 });
-      void notifyDiscord(userName, "clockin", payload.startTime, workDate);
+      await notifyDiscord(userName, "clockin", payload.startTime, workDate);
       return NextResponse.json({ record: data }, { status: 201 });
     }
 
@@ -83,7 +83,7 @@ export async function POST(request: Request) {
       }
       const { data, error } = await clockOut(userName, workDate, payload.endTime);
       if (error) return NextResponse.json({ message: error.message }, { status: 400 });
-      void notifyDiscord(userName, "clockout", payload.endTime, workDate);
+      await notifyDiscord(userName, "clockout", payload.endTime, workDate);
       return NextResponse.json({ record: data });
     }
 
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
       }
       const { data, error } = await recordOvertimeStart(userName, workDate, payload.overtimeStart);
       if (error) return NextResponse.json({ message: error.message }, { status: 400 });
-      void notifyDiscord(userName, "overtime_start", payload.overtimeStart, workDate);
+      await notifyDiscord(userName, "overtime_start", payload.overtimeStart, workDate);
       return NextResponse.json({ record: data });
     }
 
