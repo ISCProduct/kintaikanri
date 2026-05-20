@@ -95,9 +95,10 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [leaveBalance, setLeaveBalance] = useState<PaidLeaveSummary | null>(null);
   const [currentTime, setCurrentTime] = useState<string>("");
   const [todayEvents, setTodayEvents] = useState<AttendanceEvent[]>([]);
-  const [missingFixId, setMissingFixId] = useState("");
-  const [missingFixEndTime, setMissingFixEndTime] = useState("18:00");
-  const [isFixingMissing, setIsFixingMissing] = useState(false);
+  const [selectedWorkType, setSelectedWorkType] = useState<"present" | "remote">("present");
+  const [missingFixId, setMissingFixId] = useState<string>("");
+  const [missingFixEndTime, setMissingFixEndTime] = useState<string>("");
+  const [isFixingMissing, setIsFixingMissing] = useState<boolean>(false);
 
   // 認証状態
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -383,7 +384,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       userName: userName.trim(),
       workDate: getLocalDateString(),
       startTime: now.toTimeString().slice(0, 5),
-      status: "present",
+      status: selectedWorkType,
       note: "出勤打刻",
     });
     if (record) { upsertRecord(record); setMessage("出勤を記録しました。"); }
@@ -659,6 +660,26 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                   <p className="stamp-title">本日の打刻</p>
                   <p className="stamp-date">{today}</p>
                   <p className="stamp-clock">{currentTime}</p>
+
+                  {/* 勤務形態選択（未打刻時のみ） */}
+                  {!todayRecord && (
+                    <div className="work-type-toggle">
+                      <button
+                        type="button"
+                        className={`work-type-btn${selectedWorkType === "present" ? " work-type-btn-active" : ""}`}
+                        onClick={() => setSelectedWorkType("present")}
+                      >
+                        出社
+                      </button>
+                      <button
+                        type="button"
+                        className={`work-type-btn${selectedWorkType === "remote" ? " work-type-btn-active" : ""}`}
+                        onClick={() => setSelectedWorkType("remote")}
+                      >
+                        リモート
+                      </button>
+                    </div>
+                  )}
 
                   {/* 主要打刻ボタン */}
                   <div className="stamp-actions">
