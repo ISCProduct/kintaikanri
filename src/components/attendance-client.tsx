@@ -492,7 +492,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                 onChange={(e) => setAuthPassword(e.target.value.replace(/\D/g, ""))}
                 placeholder="0000"
                 autoFocus
-                style={{ textAlign: "center", fontSize: "1.8rem", letterSpacing: "0.4em" }}
+                style={{ textAlign: "center", fontSize: "1.2rem", letterSpacing: "0.4em" }}
               />
             </label>
             {authError && <p className="message message-error field-full">{authError}</p>}
