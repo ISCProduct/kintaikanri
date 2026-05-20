@@ -290,6 +290,35 @@ h1 {
   color: #065f46;
 }
 
+.work-type-toggle {
+  display: flex;
+  gap: 0;
+  border: 1.5px solid #c7d2fe;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.work-type-btn {
+  flex: 1;
+  padding: 0.45rem 1.2rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  background: #fff;
+  color: #64748b;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.work-type-btn + .work-type-btn {
+  border-left: 1.5px solid #c7d2fe;
+}
+
+.work-type-btn-active {
+  background: #4f46e5;
+  color: #fff;
+}
+
 .stamp-timeline {
   display: flex;
   flex-wrap: wrap;
