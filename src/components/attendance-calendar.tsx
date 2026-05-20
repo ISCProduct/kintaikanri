@@ -24,6 +24,13 @@ const statusLabels: Record<AttendanceStatus, string> = {
 
 const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
 
+function getLocalDateString(d = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function getMonthStr(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -61,7 +68,7 @@ export function AttendanceCalendar({ userName }: Props) {
   const mon = monthDate.getMonth();
   const firstDay = new Date(year, mon, 1).getDay(); // 0=日
   const daysInMonth = new Date(year, mon + 1, 0).getDate();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateString();
 
   const cells: (number | null)[] = [
     ...Array<null>(firstDay).fill(null),

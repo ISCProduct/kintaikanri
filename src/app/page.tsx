@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { AttendanceClient } from "@/components/attendance-client";
 import { listAttendanceRecords } from "@/server/attendance-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";

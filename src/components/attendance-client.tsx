@@ -51,6 +51,14 @@ type AttendanceFormState = {
   note: string;
 };
 
+type AttendancePatchInput = {
+  workDate?: string;
+  startTime?: string;
+  endTime?: string | null;
+  status?: AttendanceStatus;
+  note?: string | null;
+};
+
 const initialFormState: AttendanceFormState = {
   workDate: getLocalDateString(),
   startTime: "09:00",
@@ -280,6 +288,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const missingClockOuts = records.filter(
     (r) => !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status),
   );
+  const selectedMissingRecord = missingClockOuts.find((r) => r.id === missingFixId) ?? null;
   const monthPrefix = today.slice(0, 7);
   const monthlyRecords = records.filter((r) => r.work_date.startsWith(monthPrefix));
   const monthlyCount = monthlyRecords.length;
@@ -296,6 +305,20 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     const data = (await response.json()) as { record?: AttendanceRecord; message?: string };
     if (!response.ok) {
       setMessage(data.message ?? "保存に失敗しました。");
+      return null;
+    }
+    return data.record ?? null;
+  };
+
+  const patchAttendanceRecord = async (id: string, input: AttendancePatchInput): Promise<AttendanceRecord | null> => {
+    const response = await fetch(`/api/attendance/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const data = (await response.json()) as { record?: AttendanceRecord; message?: string };
+    if (!response.ok) {
+      setMessage(data.message ?? "修正に失敗しました。");
       return null;
     }
     return data.record ?? null;
@@ -418,6 +441,26 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     });
     if (record) { upsertRecord(record); setMessage("残業開始を記録しました。"); }
     setIsSubmitting(false);
+  };
+
+  const handleMissingSelect = (id: string) => {
+    setMissingFixId(id);
+    if (id) setMissingFixEndTime("18:00");
+  };
+
+  const handleFixMissingClockOut = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!missingFixId) { setMessage("退勤漏れの対象日を選択してください。"); return; }
+    if (!missingFixEndTime) { setMessage("退勤時刻を入力してください。"); return; }
+    setIsFixingMissing(true);
+    setMessage("");
+    const record = await patchAttendanceRecord(missingFixId, { endTime: missingFixEndTime });
+    if (record) {
+      upsertRecord(record);
+      setMessage("退勤漏れを修正しました。");
+      setMissingFixId("");
+    }
+    setIsFixingMissing(false);
   };
 
   // ── 認証前パネル ──────────────────────────────────────────────────────────
@@ -725,6 +768,50 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                     </div>
                   )}
                 </div>
+
+                {missingClockOuts.length > 0 && (
+                  <div className="stamp-panel">
+                    <p className="stamp-title">
+                      退勤漏れの修正
+                      <span className="badge-warn">{missingClockOuts.length}件</span>
+                    </p>
+                    <form className="form-grid" onSubmit={handleFixMissingClockOut}>
+                      <label className="field field-full">
+                        対象日
+                        <select value={missingFixId} onChange={(e) => handleMissingSelect(e.target.value)} required>
+                          <option value="" disabled>日付を選択してください</option>
+                          {missingClockOuts.map((record) => (
+                            <option key={record.id} value={record.id}>
+                              {record.work_date}（出勤 {record.start_time.slice(0, 5)}）
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {selectedMissingRecord && (
+                        <div className="field field-full" style={{ fontSize: "0.85rem", color: "#64748b" }}>
+                          出勤 {selectedMissingRecord.start_time.slice(0, 5)} から退勤時刻を入力してください。
+                        </div>
+                      )}
+                      <label className="field">
+                        退勤時刻
+                        <input
+                          type="time"
+                          value={missingFixEndTime}
+                          onChange={(e) => setMissingFixEndTime(e.target.value)}
+                          disabled={!missingFixId}
+                          required
+                        />
+                      </label>
+                      <button
+                        className="button"
+                        type="submit"
+                        disabled={isFixingMissing || !missingFixId}
+                      >
+                        {isFixingMissing ? "修正中..." : "退勤漏れを修正"}
+                      </button>
+                    </form>
+                  </div>
+                )}
 
                 <div className="manual-form-toggle">
                   <button type="button" className="sub-button" onClick={() => setShowManualForm((v) => !v)}>
