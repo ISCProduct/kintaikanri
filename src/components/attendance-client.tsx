@@ -96,6 +96,9 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [currentTime, setCurrentTime] = useState<string>("");
   const [todayEvents, setTodayEvents] = useState<AttendanceEvent[]>([]);
   const [selectedWorkType, setSelectedWorkType] = useState<"present" | "remote">("present");
+  const [missingFixId, setMissingFixId] = useState<string>("");
+  const [missingFixEndTime, setMissingFixEndTime] = useState<string>("");
+  const [isFixingMissing, setIsFixingMissing] = useState<boolean>(false);
 
   // 認証状態
   const [isAuthenticated, setIsAuthenticated] = useState(false);
