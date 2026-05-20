@@ -40,6 +40,17 @@ const SELECT_COLS = `
   overtime_start::text, status, note, created_at::text
 `;
 
+const JST_OFFSET_MINUTES = 9 * 60;
+
+function getJstDateString(now = new Date()): string {
+  const utcTime = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+  const jst = new Date(utcTime + JST_OFFSET_MINUTES * 60 * 1000);
+  const y = jst.getFullYear();
+  const m = String(jst.getMonth() + 1).padStart(2, "0");
+  const d = String(jst.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function notFoundError(message: string): ServiceError {
   return { message };
 }
@@ -355,18 +366,18 @@ export async function recordOvertimeStart(
 
 // end_time が NULL で work_date が今日より前のレコード（退勤漏れ）
 export async function listMissingClockOuts(userName?: string): Promise<AttendanceRecord[]> {
+  const today = getJstDateString();
   if (hasDatabaseUrl()) {
     const where = userName
-      ? "where end_time is null and work_date < current_date and user_name = $1 and status in ('present', 'remote')"
-      : "where end_time is null and work_date < current_date and status in ('present', 'remote')";
+      ? "where end_time is null and work_date < $1 and user_name = $2 and status in ('present', 'remote')"
+      : "where end_time is null and work_date < $1 and status in ('present', 'remote')";
     const { rows } = await getPgPool().query<AttendanceRecord>(
       `select ${SELECT_COLS} from attendance_records ${where} order by work_date desc`,
-      userName ? [userName] : [],
+      userName ? [today, userName] : [today],
     );
     return rows;
   }
   if (shouldUseSupabase()) {
-    const today = new Date().toISOString().slice(0, 10);
     let q = createSupabaseServerClient()
       .from("attendance_records")
       .select("*")
@@ -379,7 +390,6 @@ export async function listMissingClockOuts(userName?: string): Promise<Attendanc
     return (data ?? []) as AttendanceRecord[];
   }
   // ローカルストアは簡易対応
-  const today = new Date().toISOString().slice(0, 10);
   return listLocalAttendanceRecords(90).filter(
     (r) => !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status ?? ""),
   );
