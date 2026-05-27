@@ -189,44 +189,56 @@ export async function upsertAttendanceRecord(
 
 // ── 以下は従来どおり ──────────────────────────────────────────────────────
 
-export async function listAttendanceRecords(limit = 31, month?: string) {
+export async function listAttendanceRecords(limit = 31, month?: string, userName?: string) {
   if (hasDatabaseUrl()) {
     const pool = getPgPool();
     if (month) {
+      const whereParts = [`to_char(work_date, 'YYYY-MM') = $1`];
+      const values: unknown[] = [month];
+      if (userName) { whereParts.push(`user_name = $2`); values.push(userName); }
       const { rows } = await pool.query<AttendanceRecord>(
         `select ${SELECT_COLS} from attendance_records
-         where to_char(work_date, 'YYYY-MM') = $1
+         where ${whereParts.join(" and ")}
          order by work_date asc`,
-        [month],
+        values,
       );
       return { data: rows, error: null };
     }
+    const whereParts = userName ? [`user_name = $2`] : [];
+    const values: unknown[] = [limit];
+    if (userName) values.push(userName);
     const { rows } = await pool.query<AttendanceRecord>(
       `select ${SELECT_COLS} from attendance_records
+       ${whereParts.length ? `where ${whereParts.join(" and ")}` : ""}
        order by work_date desc limit $1`,
-      [limit],
+      values,
     );
     return { data: rows, error: null };
   }
 
   if (!shouldUseSupabase()) {
-    return { data: listLocalAttendanceRecords(limit), error: null };
+    const all = listLocalAttendanceRecords(limit);
+    return { data: userName ? all.filter((r) => r.user_name === userName) : all, error: null };
   }
 
   const supabase = createSupabaseServerClient();
   if (month) {
-    return supabase
+    let q = supabase
       .from("attendance_records")
       .select("*")
       .gte("work_date", `${month}-01`)
       .lte("work_date", `${month}-31`)
       .order("work_date", { ascending: true });
+    if (userName) q = q.eq("user_name", userName);
+    return q;
   }
-  return supabase
+  let q = supabase
     .from("attendance_records")
     .select("*")
     .order("work_date", { ascending: false })
     .limit(limit);
+  if (userName) q = q.eq("user_name", userName);
+  return q;
 }
 
 export async function getAttendanceRecordById(id: string) {

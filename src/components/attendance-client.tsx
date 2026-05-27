@@ -147,6 +147,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     return () => clearInterval(id);
   }, []);
 
+  // ログイン後、自分のレコードだけをロード
+  useEffect(() => {
+    if (!userName) { setRecords([]); return; }
+    void reloadRecords(userName);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userName]);
+
   useEffect(() => {
     if (!userName) { setLeaveBalance(null); return; }
     void fetch(`/api/paid-leave?userName=${encodeURIComponent(userName)}`)
@@ -281,7 +288,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     [],
   );
 
-  const todayRecord = records.find((record) => record.work_date === today) ?? null;
+  const todayRecord = records.find((record) => record.work_date === today && record.user_name === userName) ?? null;
   const lastBreakEvent = [...todayEvents].reverse().find((e) => e.event_type === "break_start" || e.event_type === "break_end");
   const hasActiveBreak = lastBreakEvent?.event_type === "break_start";
   const lastOutingEvent = [...todayEvents].reverse().find((e) => e.event_type === "outing_start" || e.event_type === "outing_return");
@@ -289,11 +296,11 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const isClockOut = !!todayRecord?.end_time;
 
   const missingClockOuts = records.filter(
-    (r) => !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status),
+    (r) => r.user_name === userName && !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status),
   );
   const selectedMissingRecord = missingClockOuts.find((r) => r.id === missingFixId) ?? null;
   const monthPrefix = today.slice(0, 7);
-  const monthlyRecords = records.filter((r) => r.work_date.startsWith(monthPrefix));
+  const monthlyRecords = records.filter((r) => r.user_name === userName && r.work_date.startsWith(monthPrefix));
   const monthlyCount = monthlyRecords.length;
   const remoteDays = monthlyRecords.filter((r) => r.status === "remote").length;
   const monthlyWorkMinutes = monthlyRecords.reduce((sum, r) => sum + calcWork(r.start_time, r.end_time).work, 0);
@@ -356,10 +363,11 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     setIsSubmitting(false);
   };
 
-  const reloadRecords = async () => {
+  const reloadRecords = async (targetUser = userName) => {
+    if (!targetUser) return;
     setIsRefreshing(true);
     setMessage("");
-    const response = await fetch("/api/attendance", { method: "GET" });
+    const response = await fetch(`/api/attendance?userName=${encodeURIComponent(targetUser)}`, { method: "GET" });
     const data = (await response.json()) as { records?: AttendanceRecord[]; message?: string };
     if (!response.ok) {
       setMessage(data.message ?? "データの取得に失敗しました。");
