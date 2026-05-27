@@ -40,7 +40,8 @@ export function shouldUseSupabase() {
     return false;
   }
 
-  return process.env.NODE_ENV === "production";
+  // 環境変数が明示されていない場合は、Supabase が実際に設定済みの場合のみ使用する
+  return isSupabaseConfigured();
 }
 
 export function createSupabaseServerClient() {
