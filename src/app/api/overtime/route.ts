@@ -3,6 +3,7 @@ import {
   listOvertimeRequests,
   createOvertimeRequest,
 } from "@/server/overtime-service";
+import { revalidateTag } from "next/cache";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
       reason,
     });
 
+    revalidateTag("overtime-requests", "max");
     return NextResponse.json({ request: data }, { status: 201 });
   } catch (e) {
     const message = e instanceof Error ? e.message : "不明なエラーが発生しました。";

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { approveCorrectionRequest, deleteCorrectionRequest } from "@/server/correction-service";
 import type { CorrectionStatus } from "@/types/correction";
+import { revalidateTag } from "next/cache";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,6 +15,7 @@ export async function PATCH(request: Request, { params }: Params) {
     }
     const { data, error } = await approveCorrectionRequest(id, status, approverName, approverComment);
     if (error) return NextResponse.json({ message: error.message }, { status: 404 });
+    revalidateTag("correction-requests", "max");
     return NextResponse.json({ request: data });
   } catch (e) {
     return NextResponse.json({ message: e instanceof Error ? e.message : "エラー" }, { status: 500 });
@@ -25,6 +27,7 @@ export async function DELETE(_: Request, { params }: Params) {
   try {
     const { error } = await deleteCorrectionRequest(id);
     if (error) return NextResponse.json({ message: error.message }, { status: 404 });
+    revalidateTag("correction-requests", "max");
     return new NextResponse(null, { status: 204 });
   } catch (e) {
     return NextResponse.json({ message: e instanceof Error ? e.message : "エラー" }, { status: 500 });

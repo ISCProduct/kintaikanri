@@ -6,6 +6,7 @@ import {
   getGrantDays,
   getUserPaidLeaveBalance,
 } from "@/server/rules-service";
+import { revalidateTag } from "next/cache";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -39,6 +40,8 @@ export async function POST(request: Request) {
     const grantDays = await getGrantDays();
     const reason = `${month} 月次残業超過による自動付与`;
     await grantPaidLeave(userName, month, grantDays, reason);
+    revalidateTag("paid-leave", "max");
+    revalidateTag("monthly-overtime", "max");
     return NextResponse.json({ ok: true, grantDays });
   } catch (e) {
     const message = e instanceof Error ? e.message : "不明なエラーが発生しました。";

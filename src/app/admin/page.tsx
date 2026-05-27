@@ -6,8 +6,6 @@ import { shouldUseSupabase } from "@/server/supabase-server";
 import type { OvertimeRequest } from "@/types/overtime";
 import type { CorrectionRequest } from "@/types/correction";
 
-export const dynamic = "force-dynamic";
-
 export default async function AdminPage() {
   const canUseDb = hasDatabaseUrl() || shouldUseSupabase();
   const [overtimeRequests, correctionRequests] = canUseDb
