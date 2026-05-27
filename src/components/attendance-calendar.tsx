@@ -51,12 +51,9 @@ export function AttendanceCalendar({ userName }: Props) {
   useEffect(() => {
     if (!userName) { setRecords([]); return; }
     setLoading(true);
-    void fetch(`/api/attendance?month=${month}`)
+    void fetch(`/api/attendance?month=${month}&userName=${encodeURIComponent(userName)}`)
       .then((r) => r.json())
-      .then((d: { records?: AttendanceRecord[] }) => {
-        const all = d.records ?? [];
-        setRecords(all.filter((r) => r.user_name === userName));
-      })
+      .then((d: { records?: AttendanceRecord[] }) => setRecords(d.records ?? []))
       .catch(() => setRecords([]))
       .finally(() => setLoading(false));
   }, [month, userName]);
