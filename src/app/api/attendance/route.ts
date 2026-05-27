@@ -15,8 +15,9 @@ import { notifyDiscord } from "@/server/discord-service";
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const month = searchParams.get("month") ?? undefined;
+  const userName = searchParams.get("userName") ?? undefined;
   try {
-    const { data, error } = await listAttendanceRecords(31, month);
+    const { data, error } = await listAttendanceRecords(31, month, userName);
     if (error) {
       return NextResponse.json({ message: error.message }, { status: 500 });
     }
