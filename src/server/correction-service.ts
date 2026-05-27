@@ -2,6 +2,7 @@ import type { CorrectionRequest, CorrectionStatus } from "@/types/correction";
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient } from "@/server/supabase-server";
 import { upsertAttendanceRecord } from "@/server/attendance-service";
+import { cacheLife, cacheTag } from "next/cache";
 
 const PG_SELECT = `
   select id, user_name, target_date::text, before_start::text, before_end::text,
@@ -27,6 +28,9 @@ function notFound(): Result<never> {
 }
 
 export async function listCorrectionRequests(userName?: string): Promise<{ data: CorrectionRequest[]; error: null }> {
+  "use cache";
+  cacheLife({ stale: 30, revalidate: 60, expire: 180 });
+  cacheTag("correction-requests");
   if (hasDatabaseUrl()) {
     const where = userName ? "where user_name = $1" : "";
     const { rows } = await getPgPool().query<CorrectionRequest>(

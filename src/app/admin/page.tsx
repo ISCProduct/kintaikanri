@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { AdminClient } from "@/components/admin-client";
 import { listOvertimeRequests } from "@/server/overtime-service";
 import { listCorrectionRequests } from "@/server/correction-service";
@@ -6,9 +7,7 @@ import { shouldUseSupabase } from "@/server/supabase-server";
 import type { OvertimeRequest } from "@/types/overtime";
 import type { CorrectionRequest } from "@/types/correction";
 
-export const dynamic = "force-dynamic";
-
-export default async function AdminPage() {
+async function AdminContent() {
   const canUseDb = hasDatabaseUrl() || shouldUseSupabase();
   const [overtimeRequests, correctionRequests] = canUseDb
     ? await Promise.all([
@@ -18,11 +17,19 @@ export default async function AdminPage() {
     : [[] as OvertimeRequest[], [] as CorrectionRequest[]];
 
   return (
+    <AdminClient
+      initialRequests={overtimeRequests}
+      initialCorrectionRequests={correctionRequests}
+    />
+  );
+}
+
+export default function AdminPage() {
+  return (
     <main className="container">
-      <AdminClient
-        initialRequests={overtimeRequests}
-        initialCorrectionRequests={correctionRequests}
-      />
+      <Suspense>
+        <AdminContent />
+      </Suspense>
     </main>
   );
 }

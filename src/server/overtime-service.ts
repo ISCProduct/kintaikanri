@@ -1,6 +1,7 @@
 import type { OvertimeRequest, OvertimeStatus } from "@/types/overtime";
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase-server";
+import { cacheLife, cacheTag } from "next/cache";
 
 const PG_SELECT = `
   select id, user_name, request_date::text, planned_start::text, planned_end::text,
@@ -34,6 +35,9 @@ function notFound(): Result<never> {
 export async function listOvertimeRequests(
   userName?: string,
 ): Promise<{ data: OvertimeRequest[]; error: null }> {
+  "use cache";
+  cacheLife({ stale: 30, revalidate: 60, expire: 180 });
+  cacheTag("overtime-requests");
   if (hasDatabaseUrl()) {
     const pool = getPgPool();
     const where = userName ? "where user_name = $1" : "";

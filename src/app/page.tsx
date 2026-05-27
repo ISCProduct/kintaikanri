@@ -1,11 +1,12 @@
-export const dynamic = "force-dynamic";
-
+import { Suspense } from "react";
 import { AttendanceClient } from "@/components/attendance-client";
 
 export default function Home() {
   return (
     <main className="container">
-      <AttendanceClient initialRecords={[]} />
+      <Suspense>
+        <AttendanceClient initialRecords={[]} />
+      </Suspense>
     </main>
   );
 }

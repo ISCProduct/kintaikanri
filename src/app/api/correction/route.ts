@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listCorrectionRequests, createCorrectionRequest } from "@/server/correction-service";
 import { isMonthClosed } from "@/server/closing-service";
+import { revalidateTag } from "next/cache";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -25,6 +26,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: `${month} は締め済みのため修正申請できません。` }, { status: 403 });
     }
     const { data } = await createCorrectionRequest({ userName, targetDate, beforeStart, beforeEnd, afterStart, afterEnd, reason });
+    revalidateTag("correction-requests", "max");
     return NextResponse.json({ request: data }, { status: 201 });
   } catch (e) {
     return NextResponse.json({ message: e instanceof Error ? e.message : "エラー" }, { status: 500 });

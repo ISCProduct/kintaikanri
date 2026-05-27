@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSystemRules, updateSystemRule } from "@/server/rules-service";
+import { revalidateTag } from "next/cache";
 
 export async function GET() {
   try {
@@ -18,6 +19,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ message: "key と value は必須です。" }, { status: 400 });
     }
     await updateSystemRule(key, value);
+    revalidateTag("system-rules", "max");
     return NextResponse.json({ ok: true });
   } catch (e) {
     const message = e instanceof Error ? e.message : "不明なエラーが発生しました。";

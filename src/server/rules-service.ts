@@ -1,10 +1,14 @@
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient } from "@/server/supabase-server";
 import type { SystemRule, PaidLeaveBalance, PaidLeaveSummary, MonthlyOvertimeSummary } from "@/types/rules";
+import { cacheLife, cacheTag } from "next/cache";
 
 // ── システムルール ──────────────────────────────────────────────────────
 
 export async function getSystemRules(): Promise<SystemRule[]> {
+  "use cache";
+  cacheLife({ stale: 30, revalidate: 60, expire: 180 });
+  cacheTag("system-rules");
   if (hasDatabaseUrl()) {
     const { rows } = await getPgPool().query<SystemRule>(
       "select key, value, label, updated_at::text from system_rules order by key",
@@ -51,6 +55,9 @@ async function getRuleValue(key: string, defaultValue: string): Promise<string> 
 // ── 有給残日数 ──────────────────────────────────────────────────────────
 
 export async function getPaidLeaveSummaries(): Promise<PaidLeaveSummary[]> {
+  "use cache";
+  cacheLife({ stale: 30, revalidate: 60, expire: 180 });
+  cacheTag("paid-leave");
   if (hasDatabaseUrl()) {
     const { rows } = await getPgPool().query<PaidLeaveSummary>(`
       select user_name,
@@ -99,49 +106,74 @@ export async function getPaidLeaveHistory(userName?: string): Promise<PaidLeaveB
 
 // ── 月次残業集計 ────────────────────────────────────────────────────────
 
-const STANDARD_WORK_MINUTES = 8 * 60; // 所定労働時間 8時間
-
 export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyOvertimeSummary[]> {
+  "use cache";
+  cacheLife({ stale: 30, revalidate: 60, expire: 180 });
+  cacheTag("monthly-overtime");
+
   const thresholdHours = parseFloat(await getRuleValue("overtime_threshold_hours", "30"));
   const thresholdMinutes = thresholdHours * 60;
 
-  // 既にこの月に付与済みのユーザーを取得
-  let grantedUsers: Set<string>;
   if (hasDatabaseUrl()) {
-    const { rows } = await getPgPool().query<{ user_name: string }>(
-      "select distinct user_name from paid_leave_balances where target_month = $1 and granted_days > 0",
+    const { rows } = await getPgPool().query<{
+      user_name: string;
+      total_work_minutes: number;
+      overtime_minutes: number;
+      already_granted: boolean;
+    }>(
+      `WITH daily AS (
+         SELECT
+           user_name,
+           GREATEST(0, EXTRACT(EPOCH FROM (end_time - start_time)) / 60)::integer      AS work_minutes,
+           GREATEST(0, EXTRACT(EPOCH FROM (end_time - start_time)) / 60 - 480)::integer AS overtime_minutes
+         FROM attendance_records
+         WHERE to_char(work_date, 'YYYY-MM') = $1
+           AND status IN ('present', 'remote')
+           AND end_time IS NOT NULL
+       )
+       SELECT
+         user_name,
+         SUM(work_minutes)::integer     AS total_work_minutes,
+         SUM(overtime_minutes)::integer AS overtime_minutes,
+         EXISTS (
+           SELECT 1 FROM paid_leave_balances plb
+           WHERE plb.user_name = daily.user_name
+             AND plb.target_month = $1
+             AND plb.granted_days > 0
+         ) AS already_granted
+       FROM daily
+       GROUP BY user_name
+       ORDER BY SUM(overtime_minutes) DESC`,
       [month],
     );
-    grantedUsers = new Set(rows.map((r) => r.user_name));
-  } else {
-    const { data } = await createSupabaseServerClient()
+    return rows.map((r) => ({
+      user_name: r.user_name,
+      month,
+      total_work_minutes: r.total_work_minutes,
+      overtime_minutes: r.overtime_minutes,
+      overtime_hours: Math.round(r.overtime_minutes / 60 * 10) / 10,
+      exceeds_threshold: r.overtime_minutes >= thresholdMinutes,
+      already_granted: r.already_granted,
+    }));
+  }
+
+  // Supabase パス: クライアント側で集計
+  const [{ data: leaveData }, { data: attendanceData }] = await Promise.all([
+    createSupabaseServerClient()
       .from("paid_leave_balances")
       .select("user_name")
       .eq("target_month", month)
-      .gt("granted_days", 0);
-    grantedUsers = new Set((data ?? []).map((r: { user_name: string }) => r.user_name));
-  }
-
-  // 月次勤怠レコードを取得して残業時間を計算
-  let records: Array<{ user_name: string; start_time: string; end_time: string | null }>;
-  if (hasDatabaseUrl()) {
-    const { rows } = await getPgPool().query<{ user_name: string; start_time: string; end_time: string | null }>(
-      `select user_name, start_time::text, end_time::text
-       from attendance_records
-       where to_char(work_date, 'YYYY-MM') = $1 and status in ('present', 'remote')`,
-      [month],
-    );
-    records = rows;
-  } else {
-    const { data } = await createSupabaseServerClient()
+      .gt("granted_days", 0),
+    createSupabaseServerClient()
       .from("attendance_records")
       .select("user_name, start_time, end_time")
       .like("work_date", `${month}%`)
-      .in("status", ["present", "remote"]);
-    records = (data ?? []) as typeof records;
-  }
+      .in("status", ["present", "remote"]),
+  ]);
 
-  // ユーザーごとに集計
+  const grantedUsers = new Set((leaveData ?? []).map((r: { user_name: string }) => r.user_name));
+  const records = (attendanceData ?? []) as Array<{ user_name: string; start_time: string; end_time: string | null }>;
+
   const userMap: Record<string, { work: number; overtime: number }> = {};
   for (const r of records) {
     if (!r.end_time) continue;
@@ -149,7 +181,7 @@ export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyO
     const [eh, em] = r.end_time.split(":").map(Number);
     const workMin = (eh * 60 + em) - (sh * 60 + sm);
     if (workMin <= 0) continue;
-    const overtimeMin = Math.max(0, workMin - STANDARD_WORK_MINUTES);
+    const overtimeMin = Math.max(0, workMin - 480);
     if (!userMap[r.user_name]) userMap[r.user_name] = { work: 0, overtime: 0 };
     userMap[r.user_name].work += workMin;
     userMap[r.user_name].overtime += overtimeMin;
