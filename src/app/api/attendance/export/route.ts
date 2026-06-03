@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase-server";
-import type { AttendanceRecord } from "@/types/attendance";
+import type { AttendanceRecord, AttendanceEvent } from "@/types/attendance";
+import { listAttendanceEventsByMonth } from "@/server/attendance-events-service";
 
 const STANDARD_WORK_MINUTES = 8 * 60;
 
@@ -14,6 +15,20 @@ function formatMinutes(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m === 0 ? `${h}:00` : `${h}:${String(m).padStart(2, "0")}`;
+}
+
+function calcBreakMinutes(events: AttendanceEvent[]): number {
+  let total = 0;
+  let start: string | null = null;
+  for (const evt of events) {
+    if (evt.event_type === "break_start") {
+      start = evt.event_time.slice(0, 5);
+    } else if (evt.event_type === "break_end" && start) {
+      total += Math.max(0, timeToMinutes(evt.event_time.slice(0, 5)) - timeToMinutes(start));
+      start = null;
+    }
+  }
+  return total;
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -33,12 +48,11 @@ export async function GET(request: Request) {
   }
 
   let records: AttendanceRecord[];
+  let eventsByDate: Record<string, AttendanceEvent[]> = {};
 
   try {
     if (hasDatabaseUrl()) {
-      const where = userName
-        ? "and user_name = $2"
-        : "";
+      const where = userName ? "and user_name = $2" : "";
       const { rows } = await getPgPool().query<AttendanceRecord>(
         `select id, user_name, work_date::text, start_time::text, end_time::text, status, note, created_at::text
          from attendance_records
@@ -60,18 +74,28 @@ export async function GET(request: Request) {
     } else {
       return NextResponse.json({ message: "DB未接続のためエクスポートできません。" }, { status: 503 });
     }
+
+    // 休憩イベントを取得（ユーザー指定がある場合のみ）
+    if (userName) {
+      const events = await listAttendanceEventsByMonth(userName, month);
+      for (const evt of events) {
+        (eventsByDate[evt.work_date] ??= []).push(evt);
+      }
+    }
   } catch (e) {
     const message = e instanceof Error ? e.message : "不明なエラーが発生しました。";
     return NextResponse.json({ message }, { status: 500 });
   }
 
   // CSVを生成
-  const header = ["氏名", "勤務日", "出勤時刻", "退勤時刻", "勤務時間", "残業時間", "区分", "備考"];
+  const header = ["氏名", "勤務日", "出勤時刻", "退勤時刻", "休憩時間", "勤務時間", "残業時間", "区分", "備考"];
   const rows = records.map((r) => {
+    const breakMin = calcBreakMinutes(eventsByDate[r.work_date] ?? []);
     let workMin = 0;
     let overtimeMin = 0;
     if (r.end_time) {
-      workMin = Math.max(0, timeToMinutes(r.end_time) - timeToMinutes(r.start_time));
+      const gross = Math.max(0, timeToMinutes(r.end_time) - timeToMinutes(r.start_time));
+      workMin = Math.max(0, gross - breakMin);
       overtimeMin = Math.max(0, workMin - STANDARD_WORK_MINUTES);
     }
     return [
@@ -79,6 +103,7 @@ export async function GET(request: Request) {
       r.work_date,
       r.start_time,
       r.end_time ?? "",
+      breakMin > 0 ? formatMinutes(breakMin) : "",
       r.end_time ? formatMinutes(workMin) : "",
       r.end_time ? formatMinutes(overtimeMin) : "",
       STATUS_LABELS[r.status] ?? r.status,

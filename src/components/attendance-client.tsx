@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, type FormEvent } from "react";
+import { Fragment, useMemo, useState, useEffect, type FormEvent } from "react";
 import type { AttendanceRecord, AttendanceStatus, AttendanceEvent, AttendanceEventType } from "@/types/attendance";
 import type { PaidLeaveSummary } from "@/types/rules";
 import { AttendanceCalendar } from "@/components/attendance-calendar";
@@ -36,9 +36,24 @@ function formatMinutes(min: number): string {
   return m === 0 ? `${h}h` : `${h}h${m}m`;
 }
 
-function calcWork(start: string, end: string | null): { work: number; overtime: number } {
+function calcBreakMinutes(events: AttendanceEvent[]): number {
+  let total = 0;
+  let breakStart: string | null = null;
+  for (const evt of events) {
+    if (evt.event_type === "break_start") {
+      breakStart = evt.event_time.slice(0, 5);
+    } else if (evt.event_type === "break_end" && breakStart) {
+      total += Math.max(0, timeToMinutes(evt.event_time.slice(0, 5)) - timeToMinutes(breakStart));
+      breakStart = null;
+    }
+  }
+  return total;
+}
+
+function calcWork(start: string, end: string | null, breakMinutes = 0): { work: number; overtime: number } {
   if (!end) return { work: 0, overtime: 0 };
-  const work = Math.max(0, timeToMinutes(end) - timeToMinutes(start));
+  const gross = Math.max(0, timeToMinutes(end) - timeToMinutes(start));
+  const work = Math.max(0, gross - breakMinutes);
   const overtime = Math.max(0, work - STANDARD_WORK_MINUTES);
   return { work, overtime };
 }
@@ -99,6 +114,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [missingFixId, setMissingFixId] = useState<string>("");
   const [missingFixEndTime, setMissingFixEndTime] = useState<string>("");
   const [isFixingMissing, setIsFixingMissing] = useState<boolean>(false);
+  const [historyMonth, setHistoryMonth] = useState<string>(() => getLocalDateString().slice(0, 7));
+  const [monthEvents, setMonthEvents] = useState<Record<string, AttendanceEvent[]>>({});
+  const [currentMonthEventMap, setCurrentMonthEventMap] = useState<Record<string, AttendanceEvent[]>>({});
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [eventFormDate, setEventFormDate] = useState<string>(getLocalDateString());
+  const [eventFormType, setEventFormType] = useState<AttendanceEventType>("break_start");
+  const [eventFormTime, setEventFormTime] = useState<string>("");
 
   // 認証状態
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -172,10 +194,50 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     }
   };
 
+  const groupEvents = (events: AttendanceEvent[]): Record<string, AttendanceEvent[]> => {
+    const grouped: Record<string, AttendanceEvent[]> = {};
+    for (const evt of events) {
+      (grouped[evt.work_date] ??= []).push(evt);
+    }
+    return grouped;
+  };
+
+  const fetchMonthEvents = async (uname: string, month: string) => {
+    try {
+      const res = await fetch(`/api/attendance/events?userName=${encodeURIComponent(uname)}&month=${encodeURIComponent(month)}`);
+      const d = (await res.json()) as { events?: AttendanceEvent[] };
+      setMonthEvents(groupEvents(d.events ?? []));
+    } catch {
+      setMonthEvents({});
+    }
+  };
+
+  const fetchCurrentMonthEvents = async (uname: string, month: string) => {
+    try {
+      const res = await fetch(`/api/attendance/events?userName=${encodeURIComponent(uname)}&month=${encodeURIComponent(month)}`);
+      const d = (await res.json()) as { events?: AttendanceEvent[] };
+      setCurrentMonthEventMap(groupEvents(d.events ?? []));
+    } catch {
+      setCurrentMonthEventMap({});
+    }
+  };
+
   useEffect(() => {
     if (!userName) { setTodayEvents([]); return; }
     void fetchTodayEvents(userName, today);
   }, [userName, today]);
+
+  useEffect(() => {
+    if (!userName) { setCurrentMonthEventMap({}); return; }
+    void fetchCurrentMonthEvents(userName, today.slice(0, 7));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userName, today]);
+
+  useEffect(() => {
+    if (activeTab !== "history" || !userName) { setMonthEvents({}); return; }
+    void fetchMonthEvents(userName, historyMonth);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, userName, historyMonth]);
 
   const knownNames = useMemo(() => {
     const fromRecords = records.map((r) => r.user_name).filter(Boolean);
@@ -303,8 +365,14 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const monthlyRecords = records.filter((r) => r.user_name === userName && r.work_date.startsWith(monthPrefix));
   const monthlyCount = monthlyRecords.length;
   const remoteDays = monthlyRecords.filter((r) => r.status === "remote").length;
-  const monthlyWorkMinutes = monthlyRecords.reduce((sum, r) => sum + calcWork(r.start_time, r.end_time).work, 0);
-  const monthlyOvertimeMinutes = monthlyRecords.reduce((sum, r) => sum + calcWork(r.start_time, r.end_time).overtime, 0);
+  const monthlyWorkMinutes = monthlyRecords.reduce((sum, r) => {
+    const breakMin = calcBreakMinutes(currentMonthEventMap[r.work_date] ?? []);
+    return sum + calcWork(r.start_time, r.end_time, breakMin).work;
+  }, 0);
+  const monthlyOvertimeMinutes = monthlyRecords.reduce((sum, r) => {
+    const breakMin = calcBreakMinutes(currentMonthEventMap[r.work_date] ?? []);
+    return sum + calcWork(r.start_time, r.end_time, breakMin).overtime;
+  }, 0);
 
   const postAttendance = async (body: Record<string, unknown>): Promise<AttendanceRecord | null> => {
     const response = await fetch("/api/attendance", {
@@ -454,6 +522,54 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     setIsSubmitting(false);
   };
 
+  const handleManualEvent = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (!userName.trim() || !eventFormDate || !eventFormType || !eventFormTime) return;
+    setIsSubmitting(true);
+    setMessage("");
+    const res = await fetch("/api/attendance/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userName: userName.trim(),
+        workDate: eventFormDate,
+        eventType: eventFormType,
+        eventTime: eventFormTime,
+      }),
+    });
+    const d = (await res.json()) as { event?: AttendanceEvent; message?: string };
+    if (!res.ok) {
+      setMessage(d.message ?? "記録に失敗しました。");
+    } else if (d.event) {
+      setMessage(`${eventTypeLabels[eventFormType]}を記録しました。`);
+      if (eventFormDate === today) {
+        setTodayEvents((prev) => [...prev, d.event!]);
+      }
+      if (eventFormDate.startsWith(historyMonth)) {
+        void fetchMonthEvents(userName, historyMonth);
+      }
+      setEventFormTime("");
+    }
+    setIsSubmitting(false);
+  };
+
+  const historyPrevMonth = useMemo(() => {
+    const d = new Date(historyMonth + "-01");
+    d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, [historyMonth]);
+
+  const historyNextMonth = useMemo(() => {
+    const d = new Date(historyMonth + "-01");
+    d.setMonth(d.getMonth() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, [historyMonth]);
+
+  const historyRecords = useMemo(
+    () => records.filter((r) => r.user_name === userName && r.work_date.startsWith(historyMonth)),
+    [records, userName, historyMonth],
+  );
+
   const handleMissingSelect = (id: string) => {
     setMissingFixId(id);
     if (id) setMissingFixEndTime("18:00");
@@ -601,7 +717,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                 <span className="summary-sub">
                   {todayRecord.start_time} 〜 {todayRecord.end_time ?? "打刻中"}
                   {todayRecord.end_time && (
-                    <> （{formatMinutes(calcWork(todayRecord.start_time, todayRecord.end_time).work)}）</>
+                    <> （{formatMinutes(calcWork(todayRecord.start_time, todayRecord.end_time, calcBreakMinutes(todayEvents)).work)}）</>
                   )}
                 </span>
               )}
@@ -825,6 +941,47 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                 )}
 
                 <div className="manual-form-toggle">
+                  <button type="button" className="sub-button" onClick={() => setShowEventForm((v) => !v)}>
+                    {showEventForm ? "▲ 休憩・外出の記録を閉じる" : "▼ 休憩・外出を手動で記録"}
+                  </button>
+                </div>
+
+                {showEventForm && (
+                  <form className="form-grid manual-form" onSubmit={handleManualEvent}>
+                    <label className="field">
+                      日付
+                      <input
+                        type="date"
+                        value={eventFormDate}
+                        onChange={(e) => setEventFormDate(e.target.value)}
+                        required
+                      />
+                    </label>
+                    <label className="field">
+                      種別
+                      <select value={eventFormType} onChange={(e) => setEventFormType(e.target.value as AttendanceEventType)}>
+                        <option value="break_start">休憩開始</option>
+                        <option value="break_end">休憩終了</option>
+                        <option value="outing_start">外出</option>
+                        <option value="outing_return">外出戻り</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      時刻
+                      <input
+                        type="time"
+                        value={eventFormTime}
+                        onChange={(e) => setEventFormTime(e.target.value)}
+                        required
+                      />
+                    </label>
+                    <button className="button" type="submit" disabled={isSubmitting || !eventFormTime}>
+                      {isSubmitting ? "記録中..." : "記録する"}
+                    </button>
+                  </form>
+                )}
+
+                <div className="manual-form-toggle">
                   <button type="button" className="sub-button" onClick={() => setShowManualForm((v) => !v)}>
                     {showManualForm ? "▲ 手入力を閉じる" : "▼ 手入力で修正・休暇登録"}
                   </button>
@@ -862,41 +1019,76 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               </div>
             ) : activeTab === "calendar" ? (
               <AttendanceCalendar userName={userName} />
-            ) : records.length === 0 ? (
-              <p className="description">まだデータがありません。</p>
             ) : (
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>勤務日</th>
-                      <th>開始</th>
-                      <th>終了</th>
-                      <th>残業開始</th>
-                      <th>勤務時間</th>
-                      <th>残業時間</th>
-                      <th>区分</th>
-                      <th>備考</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {records.filter((r) => r.user_name === userName).map((record) => {
-                      const { work, overtime } = calcWork(record.start_time, record.end_time);
-                      return (
-                        <tr key={record.id}>
-                          <td>{record.work_date}</td>
-                          <td>{record.start_time}</td>
-                          <td>{record.end_time ?? "-"}</td>
-                          <td>{record.overtime_start ?? "-"}</td>
-                          <td>{record.end_time ? formatMinutes(work) : "-"}</td>
-                          <td className={overtime > 0 ? "overtime-warn" : ""}>{record.end_time ? formatMinutes(overtime) : "-"}</td>
-                          <td><span className="status-chip">{statusLabels[record.status]}</span></td>
-                          <td>{record.note ?? "-"}</td>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.8rem", justifyContent: "center", paddingBottom: "0.8rem" }}>
+                  <button className="cal-nav-btn" type="button" onClick={() => setHistoryMonth(historyPrevMonth)}>‹</button>
+                  <span style={{ fontWeight: 600, fontSize: "1rem" }}>{historyMonth}</span>
+                  <button className="cal-nav-btn" type="button" onClick={() => setHistoryMonth(historyNextMonth)}>›</button>
+                </div>
+                {historyRecords.length === 0 ? (
+                  <p className="description">この月のデータはありません。</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>勤務日</th>
+                          <th>開始</th>
+                          <th>終了</th>
+                          <th>残業開始</th>
+                          <th>勤務時間</th>
+                          <th>残業時間</th>
+                          <th>区分</th>
+                          <th>備考</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {historyRecords.map((record) => {
+                          const dayEvents = monthEvents[record.work_date] ?? [];
+                          const breakMin = calcBreakMinutes(dayEvents);
+                          const { work, overtime } = calcWork(record.start_time, record.end_time, breakMin);
+                          return (
+                            <Fragment key={record.id}>
+                              <tr>
+                                <td>{record.work_date}</td>
+                                <td>{record.start_time}</td>
+                                <td>{record.end_time ?? "-"}</td>
+                                <td>{record.overtime_start ?? "-"}</td>
+                                <td>{record.end_time ? formatMinutes(work) : "-"}</td>
+                                <td className={overtime > 0 ? "overtime-warn" : ""}>{record.end_time ? formatMinutes(overtime) : "-"}</td>
+                                <td><span className="status-chip">{statusLabels[record.status]}</span></td>
+                                <td>{record.note ?? "-"}</td>
+                              </tr>
+                              {dayEvents.length > 0 && (
+                                <tr>
+                                  <td colSpan={8} style={{ padding: "0.2rem 0.8rem 0.5rem", background: "#f8fafc" }}>
+                                    <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+                                      {dayEvents.map((evt, i) => (
+                                        <span
+                                          key={i}
+                                          style={{
+                                            fontSize: "0.78rem",
+                                            padding: "0.1rem 0.45rem",
+                                            borderRadius: "4px",
+                                            background: evt.event_type.startsWith("break") ? "#fef9c3" : "#ecfdf5",
+                                            color: evt.event_type.startsWith("break") ? "#92400e" : "#065f46",
+                                          }}
+                                        >
+                                          {evt.event_time.slice(0, 5)} {eventTypeLabels[evt.event_type]}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 

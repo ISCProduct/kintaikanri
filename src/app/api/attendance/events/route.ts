@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { AttendanceEventType } from "@/types/attendance";
-import { createAttendanceEvent, listAttendanceEvents } from "@/server/attendance-events-service";
+import { createAttendanceEvent, listAttendanceEvents, listAttendanceEventsByMonth } from "@/server/attendance-events-service";
 import { isSupabaseConfigurationError } from "@/server/supabase-server";
 import { isMonthClosed } from "@/server/closing-service";
 import { notifyDiscord } from "@/server/discord-service";
@@ -9,11 +9,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const userName = searchParams.get("userName") ?? "";
   const workDate = searchParams.get("workDate") ?? "";
-  if (!userName || !workDate) {
+  const month = searchParams.get("month") ?? "";
+  if (!userName || (!workDate && !month)) {
     return NextResponse.json({ events: [] });
   }
   try {
-    const events = await listAttendanceEvents(userName, workDate);
+    const events = month
+      ? await listAttendanceEventsByMonth(userName, month)
+      : await listAttendanceEvents(userName, workDate);
     return NextResponse.json({ events });
   } catch (error) {
     if (isSupabaseConfigurationError(error)) {

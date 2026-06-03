@@ -62,3 +62,28 @@ export async function listAttendanceEvents(userName: string, workDate: string): 
   }
   return localEvents.filter((e) => e.user_name === userName && e.work_date === workDate);
 }
+
+export async function listAttendanceEventsByMonth(userName: string, month: string): Promise<AttendanceEvent[]> {
+  if (hasDatabaseUrl()) {
+    const { rows } = await getPgPool().query<AttendanceEvent>(
+      `select ${SELECT_COLS} from attendance_events
+       where user_name = $1 and to_char(work_date, 'YYYY-MM') = $2
+       order by work_date asc, event_time asc`,
+      [userName, month],
+    );
+    return rows;
+  }
+  if (shouldUseSupabase()) {
+    const { data } = await createSupabaseServerClient()
+      .from("attendance_events")
+      .select("*")
+      .eq("user_name", userName)
+      .like("work_date", `${month}%`)
+      .order("work_date", { ascending: true })
+      .order("event_time", { ascending: true });
+    return (data ?? []) as AttendanceEvent[];
+  }
+  return localEvents
+    .filter((e) => e.user_name === userName && e.work_date.startsWith(month))
+    .sort((a, b) => a.work_date.localeCompare(b.work_date) || a.event_time.localeCompare(b.event_time));
+}
