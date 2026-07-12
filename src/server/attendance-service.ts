@@ -14,6 +14,7 @@ import {
   updateLocalAttendanceRecord,
 } from "@/server/local-attendance-store";
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
+import { monthDateBounds } from "@/lib/month-range";
 
 export type AttendanceCreateInput = {
   userName: string;
@@ -223,11 +224,12 @@ export async function listAttendanceRecords(limit = 31, month?: string, userName
 
   const supabase = createSupabaseServerClient();
   if (month) {
+    const { start, end } = monthDateBounds(month);
     let q = supabase
       .from("attendance_records")
       .select("*")
-      .gte("work_date", `${month}-01`)
-      .lte("work_date", `${month}-31`)
+      .gte("work_date", start)
+      .lte("work_date", end)
       .order("work_date", { ascending: true });
     if (userName) q = q.eq("user_name", userName);
     return q;

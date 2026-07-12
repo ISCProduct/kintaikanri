@@ -4,6 +4,7 @@ import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase
 import type { AttendanceRecord, AttendanceEvent } from "@/types/attendance";
 import { listAttendanceEventsByMonth } from "@/server/attendance-events-service";
 import { calcWork } from "@/lib/attendance-calc";
+import { monthDateBounds } from "@/lib/month-range";
 
 function formatMinutes(min: number): string {
   const safe = Math.max(0, Math.round(min));
@@ -44,11 +45,12 @@ export async function GET(request: Request) {
       );
       records = rows;
     } else if (shouldUseSupabase()) {
+      const { start, end } = monthDateBounds(month);
       let query = createSupabaseServerClient()
         .from("attendance_records")
         .select("*")
-        .gte("work_date", `${month}-01`)
-        .lte("work_date", `${month}-31`)
+        .gte("work_date", start)
+        .lte("work_date", end)
         .order("user_name")
         .order("work_date");
       if (userName) query = query.eq("user_name", userName);
