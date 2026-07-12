@@ -4,6 +4,7 @@ import type { SystemRule, PaidLeaveBalance, PaidLeaveSummary, MonthlyOvertimeSum
 import type { AttendanceEvent } from "@/types/attendance";
 import { cacheLife, cacheTag } from "next/cache";
 import { calcWork } from "@/lib/attendance-calc";
+import { monthDateBounds } from "@/lib/month-range";
 import { listAttendanceEventsByMonth } from "@/server/attendance-events-service";
 
 // ── システムルール ──────────────────────────────────────────────────────
@@ -146,6 +147,7 @@ export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyO
     grantedUsers = new Set(leaveRows.rows.map((r) => r.user_name));
   } else {
     const supabase = createSupabaseServerClient();
+    const { start, end } = monthDateBounds(month);
     const [{ data: leaveData, error: leaveError }, { data: attendanceData, error: attendanceError }] =
       await Promise.all([
         supabase
@@ -156,8 +158,8 @@ export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyO
         supabase
           .from("attendance_records")
           .select("user_name, start_time, end_time, overtime_start, work_date")
-          .gte("work_date", `${month}-01`)
-          .lte("work_date", `${month}-31`)
+          .gte("work_date", start)
+          .lte("work_date", end)
           .in("status", ["present", "remote"]),
       ]);
     if (attendanceError) {

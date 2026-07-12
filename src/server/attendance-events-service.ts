@@ -1,6 +1,7 @@
 import type { AttendanceEvent, AttendanceEventType } from "@/types/attendance";
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase-server";
+import { monthDateBounds } from "@/lib/month-range";
 
 const SELECT_COLS = `id, user_name, work_date::text, event_type, event_time::text, created_at::text`;
 
@@ -74,12 +75,13 @@ export async function listAttendanceEventsByMonth(userName: string, month: strin
     return rows;
   }
   if (shouldUseSupabase()) {
+    const { start, end } = monthDateBounds(month);
     const { data } = await createSupabaseServerClient()
       .from("attendance_events")
       .select("*")
       .eq("user_name", userName)
-      .gte("work_date", `${month}-01`)
-      .lte("work_date", `${month}-31`)
+      .gte("work_date", start)
+      .lte("work_date", end)
       .order("work_date", { ascending: true })
       .order("event_time", { ascending: true });
     return (data ?? []) as AttendanceEvent[];
