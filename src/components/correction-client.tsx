@@ -39,15 +39,20 @@ export function CorrectionClient({ initialRequests }: Props) {
   // 認証後に勤怠記録（退勤済みのみ）を取得
   useEffect(() => {
     if (!isAuthenticated || !userName) return;
-    void fetch("/api/attendance")
+    let cancelled = false;
+    void fetch(`/api/attendance?userName=${encodeURIComponent(userName)}`)
       .then((r) => r.json())
       .then((d: { records?: AttendanceRecord[] }) => {
+        if (cancelled) return;
         const completed = (d.records ?? []).filter(
           (r) => r.user_name === userName && r.end_time,
         );
         setAttendanceRecords(completed);
       })
-      .catch(() => setAttendanceRecords([]));
+      .catch(() => {
+        if (!cancelled) setAttendanceRecords([]);
+      });
+    return () => { cancelled = true; };
   }, [isAuthenticated, userName]);
 
   const selectedRecord = attendanceRecords.find((r) => r.id === selectedRecordId) ?? null;

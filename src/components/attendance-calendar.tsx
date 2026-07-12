@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
 
 const statusColors: Record<AttendanceStatus, string> = {
@@ -45,17 +45,30 @@ export function AttendanceCalendar({ userName }: Props) {
   });
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const fetchGen = useRef(0);
 
   const month = getMonthStr(monthDate);
 
   useEffect(() => {
-    if (!userName) { setRecords([]); return; }
+    if (!userName) {
+      setRecords([]);
+      return;
+    }
+    const gen = ++fetchGen.current;
     setLoading(true);
     void fetch(`/api/attendance?month=${month}&userName=${encodeURIComponent(userName)}`)
       .then((r) => r.json())
-      .then((d: { records?: AttendanceRecord[] }) => setRecords(d.records ?? []))
-      .catch(() => setRecords([]))
-      .finally(() => setLoading(false));
+      .then((d: { records?: AttendanceRecord[] }) => {
+        if (gen !== fetchGen.current) return;
+        setRecords((d.records ?? []).filter((r) => r.user_name === userName));
+      })
+      .catch(() => {
+        if (gen !== fetchGen.current) return;
+        setRecords([]);
+      })
+      .finally(() => {
+        if (gen === fetchGen.current) setLoading(false);
+      });
   }, [month, userName]);
 
   const recordMap = Object.fromEntries(records.map((r) => [r.work_date, r]));

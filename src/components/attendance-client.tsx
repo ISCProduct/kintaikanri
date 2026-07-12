@@ -1,9 +1,10 @@
 "use client";
 
-import { Fragment, useMemo, useState, useEffect, type FormEvent } from "react";
+import { Fragment, useMemo, useState, useEffect, useRef, type FormEvent } from "react";
 import type { AttendanceRecord, AttendanceStatus, AttendanceEvent, AttendanceEventType } from "@/types/attendance";
 import type { PaidLeaveSummary } from "@/types/rules";
 import { AttendanceCalendar } from "@/components/attendance-calendar";
+import { calcWork, formatMinutes } from "@/lib/attendance-calc";
 
 const eventTypeLabels: Record<AttendanceEventType, string> = {
   break_start: "休憩開始",
@@ -23,39 +24,9 @@ function getLocalDateString() {
 const USER_NAME_KEY = "kintai_user_name";
 const USER_NAME_LIST_KEY = "kintai_user_name_list";
 const OTHER_VALUE = "__other__";
-const STANDARD_WORK_MINUTES = 8 * 60;
 
-function timeToMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-
-function formatMinutes(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m === 0 ? `${h}h` : `${h}h${m}m`;
-}
-
-function calcBreakMinutes(events: AttendanceEvent[]): number {
-  let total = 0;
-  let breakStart: string | null = null;
-  for (const evt of events) {
-    if (evt.event_type === "break_start") {
-      breakStart = evt.event_time.slice(0, 5);
-    } else if (evt.event_type === "break_end" && breakStart) {
-      total += Math.max(0, timeToMinutes(evt.event_time.slice(0, 5)) - timeToMinutes(breakStart));
-      breakStart = null;
-    }
-  }
-  return total;
-}
-
-function calcWork(start: string, end: string | null, breakMinutes = 0): { work: number; overtime: number } {
-  if (!end) return { work: 0, overtime: 0 };
-  const gross = Math.max(0, timeToMinutes(end) - timeToMinutes(start));
-  const work = Math.max(0, gross - breakMinutes);
-  const overtime = Math.max(0, work - STANDARD_WORK_MINUTES);
-  return { work, overtime };
+function onlyOwnRecords(list: AttendanceRecord[], name: string) {
+  return list.filter((r) => r.user_name === name);
 }
 
 type AttendanceFormState = {
@@ -135,6 +106,14 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [pinNew2, setPinNew2] = useState("");
   const [pinChangeMsg, setPinChangeMsg] = useState("");
 
+  // ユーザー切替時の古いレスポンスを破棄するための世代カウンタ
+  const recordsFetchGen = useRef(0);
+  const historyRecordsFetchGen = useRef(0);
+  const todayEventsFetchGen = useRef(0);
+  const monthEventsFetchGen = useRef(0);
+  const currentMonthEventsFetchGen = useRef(0);
+  const leaveFetchGen = useRef(0);
+
   // ユーザー管理に登録されたユーザー一覧を取得
   useEffect(() => {
     void fetch("/api/admin/users")
@@ -171,28 +150,35 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
   // ログイン後、自分のレコードだけをロード
   useEffect(() => {
-    if (!userName) { setRecords([]); return; }
+    if (!userName) {
+      setRecords([]);
+      setTodayEvents([]);
+      setMonthEvents({});
+      setCurrentMonthEventMap({});
+      return;
+    }
+    setRecords([]);
+    setTodayEvents([]);
+    setMonthEvents({});
+    setCurrentMonthEventMap({});
     void reloadRecords(userName);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userName]);
 
   useEffect(() => {
     if (!userName) { setLeaveBalance(null); return; }
+    const gen = ++leaveFetchGen.current;
     void fetch(`/api/paid-leave?userName=${encodeURIComponent(userName)}`)
       .then((r) => r.json())
-      .then((d: { balance?: PaidLeaveSummary }) => setLeaveBalance(d.balance ?? null))
-      .catch(() => setLeaveBalance(null));
+      .then((d: { balance?: PaidLeaveSummary }) => {
+        if (gen !== leaveFetchGen.current) return;
+        setLeaveBalance(d.balance ?? null);
+      })
+      .catch(() => {
+        if (gen !== leaveFetchGen.current) return;
+        setLeaveBalance(null);
+      });
   }, [userName]);
-
-  const fetchTodayEvents = async (uname: string, date: string) => {
-    try {
-      const res = await fetch(`/api/attendance/events?userName=${encodeURIComponent(uname)}&workDate=${date}`);
-      const d = (await res.json()) as { events?: AttendanceEvent[] };
-      setTodayEvents(d.events ?? []);
-    } catch {
-      setTodayEvents([]);
-    }
-  };
 
   const groupEvents = (events: AttendanceEvent[]): Record<string, AttendanceEvent[]> => {
     const grouped: Record<string, AttendanceEvent[]> = {};
@@ -202,22 +188,61 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     return grouped;
   };
 
+  const mergeEventIntoMaps = (event: AttendanceEvent) => {
+    setTodayEvents((prev) => {
+      if (event.work_date !== today) return prev;
+      if (prev.some((e) => e.id === event.id)) return prev;
+      return [...prev, event];
+    });
+    setCurrentMonthEventMap((prev) => {
+      if (!event.work_date.startsWith(today.slice(0, 7))) return prev;
+      const day = prev[event.work_date] ?? [];
+      if (day.some((e) => e.id === event.id)) return prev;
+      return { ...prev, [event.work_date]: [...day, event] };
+    });
+    setMonthEvents((prev) => {
+      if (!event.work_date.startsWith(historyMonth)) return prev;
+      const day = prev[event.work_date] ?? [];
+      if (day.some((e) => e.id === event.id)) return prev;
+      return { ...prev, [event.work_date]: [...day, event] };
+    });
+  };
+
+  const fetchTodayEvents = async (uname: string, date: string) => {
+    const gen = ++todayEventsFetchGen.current;
+    try {
+      const res = await fetch(`/api/attendance/events?userName=${encodeURIComponent(uname)}&workDate=${date}`);
+      const d = (await res.json()) as { events?: AttendanceEvent[] };
+      if (gen !== todayEventsFetchGen.current) return;
+      setTodayEvents((d.events ?? []).filter((e) => e.user_name === uname));
+    } catch {
+      if (gen !== todayEventsFetchGen.current) return;
+      setTodayEvents([]);
+    }
+  };
+
   const fetchMonthEvents = async (uname: string, month: string) => {
+    const gen = ++monthEventsFetchGen.current;
     try {
       const res = await fetch(`/api/attendance/events?userName=${encodeURIComponent(uname)}&month=${encodeURIComponent(month)}`);
       const d = (await res.json()) as { events?: AttendanceEvent[] };
-      setMonthEvents(groupEvents(d.events ?? []));
+      if (gen !== monthEventsFetchGen.current) return;
+      setMonthEvents(groupEvents((d.events ?? []).filter((e) => e.user_name === uname)));
     } catch {
+      if (gen !== monthEventsFetchGen.current) return;
       setMonthEvents({});
     }
   };
 
   const fetchCurrentMonthEvents = async (uname: string, month: string) => {
+    const gen = ++currentMonthEventsFetchGen.current;
     try {
       const res = await fetch(`/api/attendance/events?userName=${encodeURIComponent(uname)}&month=${encodeURIComponent(month)}`);
       const d = (await res.json()) as { events?: AttendanceEvent[] };
-      setCurrentMonthEventMap(groupEvents(d.events ?? []));
+      if (gen !== currentMonthEventsFetchGen.current) return;
+      setCurrentMonthEventMap(groupEvents((d.events ?? []).filter((e) => e.user_name === uname)));
     } catch {
+      if (gen !== currentMonthEventsFetchGen.current) return;
       setCurrentMonthEventMap({});
     }
   };
@@ -236,6 +261,21 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   useEffect(() => {
     if (activeTab !== "history" || !userName) { setMonthEvents({}); return; }
     void fetchMonthEvents(userName, historyMonth);
+    // 履歴月の勤怠レコードも月指定で再取得（直近31件だけだと欠ける）
+    const gen = ++historyRecordsFetchGen.current;
+    void fetch(`/api/attendance?month=${encodeURIComponent(historyMonth)}&userName=${encodeURIComponent(userName)}`)
+      .then((r) => r.json())
+      .then((d: { records?: AttendanceRecord[] }) => {
+        if (gen !== historyRecordsFetchGen.current) return;
+        const monthOnes = onlyOwnRecords(d.records ?? [], userName);
+        setRecords((prev) => {
+          const others = prev.filter(
+            (r) => r.user_name === userName && !r.work_date.startsWith(historyMonth),
+          );
+          return [...monthOnes, ...others];
+        });
+      })
+      .catch(() => undefined);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, userName, historyMonth]);
 
@@ -366,12 +406,12 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const monthlyCount = monthlyRecords.length;
   const remoteDays = monthlyRecords.filter((r) => r.status === "remote").length;
   const monthlyWorkMinutes = monthlyRecords.reduce((sum, r) => {
-    const breakMin = calcBreakMinutes(currentMonthEventMap[r.work_date] ?? []);
-    return sum + calcWork(r.start_time, r.end_time, breakMin).work;
+    const events = currentMonthEventMap[r.work_date] ?? [];
+    return sum + calcWork(r.start_time, r.end_time, events, r.overtime_start).work;
   }, 0);
   const monthlyOvertimeMinutes = monthlyRecords.reduce((sum, r) => {
-    const breakMin = calcBreakMinutes(currentMonthEventMap[r.work_date] ?? []);
-    return sum + calcWork(r.start_time, r.end_time, breakMin).overtime;
+    const events = currentMonthEventMap[r.work_date] ?? [];
+    return sum + calcWork(r.start_time, r.end_time, events, r.overtime_start).overtime;
   }, 0);
 
   const postAttendance = async (body: Record<string, unknown>): Promise<AttendanceRecord | null> => {
@@ -403,6 +443,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   };
 
   const upsertRecord = (record: AttendanceRecord) => {
+    if (userName && record.user_name !== userName) return;
     setRecords((current) => {
       const exists = current.some((r) => r.id === record.id);
       if (exists) return current.map((r) => (r.id === record.id ? record : r));
@@ -433,14 +474,16 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
   const reloadRecords = async (targetUser = userName) => {
     if (!targetUser) return;
+    const gen = ++recordsFetchGen.current;
     setIsRefreshing(true);
     setMessage("");
     const response = await fetch(`/api/attendance?userName=${encodeURIComponent(targetUser)}`, { method: "GET" });
     const data = (await response.json()) as { records?: AttendanceRecord[]; message?: string };
+    if (gen !== recordsFetchGen.current) return;
     if (!response.ok) {
       setMessage(data.message ?? "データの取得に失敗しました。");
     } else {
-      setRecords(data.records ?? []);
+      setRecords(onlyOwnRecords(data.records ?? [], targetUser));
     }
     setIsRefreshing(false);
   };
@@ -501,7 +544,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     if (!res.ok) {
       setMessage(d.message ?? "記録に失敗しました。");
     } else if (d.event) {
-      setTodayEvents((prev) => [...prev, d.event!]);
+      mergeEventIntoMaps(d.event);
       setMessage(`${eventTypeLabels[eventType]}を記録しました。`);
     }
     setIsSubmitting(false);
@@ -541,13 +584,8 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     if (!res.ok) {
       setMessage(d.message ?? "記録に失敗しました。");
     } else if (d.event) {
+      mergeEventIntoMaps(d.event);
       setMessage(`${eventTypeLabels[eventFormType]}を記録しました。`);
-      if (eventFormDate === today) {
-        setTodayEvents((prev) => [...prev, d.event!]);
-      }
-      if (eventFormDate.startsWith(historyMonth)) {
-        void fetchMonthEvents(userName, historyMonth);
-      }
       setEventFormTime("");
     }
     setIsSubmitting(false);
@@ -716,9 +754,20 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               {todayRecord?.start_time && (
                 <span className="summary-sub">
                   {todayRecord.start_time} 〜 {todayRecord.end_time ?? "打刻中"}
-                  {todayRecord.end_time && (
-                    <> （{formatMinutes(calcWork(todayRecord.start_time, todayRecord.end_time, calcBreakMinutes(todayEvents)).work)}）</>
-                  )}
+                  {todayRecord.end_time && (() => {
+                    const { work, overtime } = calcWork(
+                      todayRecord.start_time,
+                      todayRecord.end_time,
+                      todayEvents,
+                      todayRecord.overtime_start,
+                    );
+                    return (
+                      <>
+                        {" "}（{formatMinutes(work)}
+                        {overtime > 0 ? ` / 残業 ${formatMinutes(overtime)}` : ""}）
+                      </>
+                    );
+                  })()}
                 </span>
               )}
               {todayRecord?.overtime_start && (
@@ -1046,8 +1095,12 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                       <tbody>
                         {historyRecords.map((record) => {
                           const dayEvents = monthEvents[record.work_date] ?? [];
-                          const breakMin = calcBreakMinutes(dayEvents);
-                          const { work, overtime } = calcWork(record.start_time, record.end_time, breakMin);
+                          const { work, overtime } = calcWork(
+                            record.start_time,
+                            record.end_time,
+                            dayEvents,
+                            record.overtime_start,
+                          );
                           return (
                             <Fragment key={record.id}>
                               <tr>
