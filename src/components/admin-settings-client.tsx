@@ -22,6 +22,8 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
   const [summaries, setSummaries] = useState<PaidLeaveSummary[]>(initialSummaries);
   const [overtime, setOvertime] = useState<MonthlyOvertimeSummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(getThisMonth());
+  const [checkingOvertime, setCheckingOvertime] = useState(false);
+  const [overtimeChecked, setOvertimeChecked] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>(
     Object.fromEntries(initialRules.filter((r) => r.key !== "admin_pin").map((r) => [r.key, r.value])),
   );
@@ -76,13 +78,35 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
 
   const handleCheckOvertime = async () => {
     setMessage("");
-    const res = await fetch(`/api/paid-leave?month=${selectedMonth}`);
-    const data = (await res.json()) as {
-      summaries?: PaidLeaveSummary[];
-      overtime?: MonthlyOvertimeSummary[];
-    };
-    setOvertime(data.overtime ?? []);
-    setSummaries(data.summaries ?? []);
+    setCheckingOvertime(true);
+    setOvertimeChecked(false);
+    try {
+      const res = await fetch(`/api/paid-leave?month=${encodeURIComponent(selectedMonth)}`, {
+        cache: "no-store",
+      });
+      const data = (await res.json()) as {
+        summaries?: PaidLeaveSummary[];
+        overtime?: MonthlyOvertimeSummary[];
+        message?: string;
+      };
+      if (!res.ok) {
+        showMsg(data.message ?? "集計に失敗しました。", "error");
+        setOvertime([]);
+      } else {
+        setOvertime(data.overtime ?? []);
+        setSummaries(data.summaries ?? []);
+        setOvertimeChecked(true);
+        if ((data.overtime ?? []).length === 0) {
+          showMsg(`${selectedMonth} の退勤済み勤怠データがありません。`, "error");
+        } else {
+          showMsg(`${selectedMonth} の残業を集計しました（${data.overtime!.length}名）。`);
+        }
+      }
+    } catch {
+      showMsg("集計に失敗しました。", "error");
+      setOvertime([]);
+    }
+    setCheckingOvertime(false);
   };
 
   const handleGrant = async (userName: string) => {
@@ -269,13 +293,31 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
             <input
               type="month"
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              onChange={(e) => {
+                setSelectedMonth(e.target.value);
+                setOvertimeChecked(false);
+                setOvertime([]);
+              }}
             />
           </label>
-          <button className="sub-button" onClick={() => void handleCheckOvertime()}>
-            集計する
+          <button
+            className="sub-button"
+            onClick={() => void handleCheckOvertime()}
+            disabled={checkingOvertime}
+          >
+            {checkingOvertime ? "集計中..." : "集計する"}
           </button>
         </div>
+
+        {message && (
+          <p className={messageType === "error" ? "message message-error" : "message"}>{message}</p>
+        )}
+
+        {overtimeChecked && overtime.length === 0 && (
+          <p className="description">
+            {selectedMonth} に集計対象の退勤済み勤怠がありません。月を変えて再集計してください。
+          </p>
+        )}
 
         {overtime.length > 0 && (
           <>

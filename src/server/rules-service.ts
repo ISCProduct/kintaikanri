@@ -47,11 +47,12 @@ async function getRuleValue(key: string, defaultValue: string): Promise<string> 
     );
     return rows[0]?.value ?? defaultValue;
   }
-  const { data } = await createSupabaseServerClient()
+  const { data, error } = await createSupabaseServerClient()
     .from("system_rules")
     .select("value")
     .eq("key", key)
-    .single();
+    .maybeSingle();
+  if (error) return defaultValue;
   return (data as { value: string } | null)?.value ?? defaultValue;
 }
 
@@ -110,10 +111,7 @@ export async function getPaidLeaveHistory(userName?: string): Promise<PaidLeaveB
 // ── 月次残業集計 ────────────────────────────────────────────────────────
 
 export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyOvertimeSummary[]> {
-  "use cache";
-  cacheLife({ stale: 30, revalidate: 60, expire: 180 });
-  cacheTag("monthly-overtime");
-
+  // 管理画面の「集計する」は都度最新データを見る（キャッシュすると障害時の空結果が残る）
   const thresholdHours = parseFloat(await getRuleValue("overtime_threshold_hours", "30"));
   const thresholdMinutes = thresholdHours * 60;
 
@@ -147,29 +145,53 @@ export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyO
     records = rows;
     grantedUsers = new Set(leaveRows.rows.map((r) => r.user_name));
   } else {
-    const [{ data: leaveData }, { data: attendanceData }] = await Promise.all([
-      createSupabaseServerClient()
-        .from("paid_leave_balances")
-        .select("user_name")
-        .eq("target_month", month)
-        .gt("granted_days", 0),
-      createSupabaseServerClient()
-        .from("attendance_records")
-        .select("user_name, start_time, end_time, overtime_start, work_date")
-        .like("work_date", `${month}%`)
-        .in("status", ["present", "remote"]),
-    ]);
+    const supabase = createSupabaseServerClient();
+    const [{ data: leaveData, error: leaveError }, { data: attendanceData, error: attendanceError }] =
+      await Promise.all([
+        supabase
+          .from("paid_leave_balances")
+          .select("user_name")
+          .eq("target_month", month)
+          .gt("granted_days", 0),
+        supabase
+          .from("attendance_records")
+          .select("user_name, start_time, end_time, overtime_start, work_date")
+          .like("work_date", `${month}%`)
+          .in("status", ["present", "remote"]),
+      ]);
+    if (attendanceError) {
+      throw new Error(`勤怠データの取得に失敗しました: ${attendanceError.message}`);
+    }
+    if (leaveError) {
+      throw new Error(`有給データの取得に失敗しました: ${leaveError.message}`);
+    }
     grantedUsers = new Set((leaveData ?? []).map((r: { user_name: string }) => r.user_name));
-    records = (attendanceData ?? []) as Row[];
+    records = ((attendanceData ?? []) as Row[]).map((r) => ({
+      ...r,
+      // Supabase の date/time 型を HH:MM / YYYY-MM-DD に正規化
+      work_date: String(r.work_date).slice(0, 10),
+      start_time: String(r.start_time).slice(0, 5),
+      end_time: r.end_time ? String(r.end_time).slice(0, 5) : null,
+      overtime_start: r.overtime_start ? String(r.overtime_start).slice(0, 5) : null,
+    }));
   }
 
   const names = Array.from(new Set(records.map((r) => r.user_name)));
   const eventsByKey: Record<string, AttendanceEvent[]> = {};
   await Promise.all(
     names.map(async (name) => {
-      const events = await listAttendanceEventsByMonth(name, month);
-      for (const evt of events) {
-        (eventsByKey[`${evt.user_name}|${evt.work_date}`] ??= []).push(evt);
+      try {
+        const events = await listAttendanceEventsByMonth(name, month);
+        for (const evt of events) {
+          const date = String(evt.work_date).slice(0, 10);
+          (eventsByKey[`${evt.user_name}|${date}`] ??= []).push({
+            ...evt,
+            work_date: date,
+            event_time: String(evt.event_time).slice(0, 5),
+          });
+        }
+      } catch {
+        // イベント取得失敗でも勤務時間集計は続行
       }
     }),
   );
@@ -191,7 +213,7 @@ export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyO
       month,
       total_work_minutes: work,
       overtime_minutes: overtime,
-      overtime_hours: Math.round(overtime / 60 * 10) / 10,
+      overtime_hours: Math.round((overtime / 60) * 10) / 10,
       exceeds_threshold: overtime >= thresholdMinutes,
       already_granted: grantedUsers.has(user_name),
     }))
