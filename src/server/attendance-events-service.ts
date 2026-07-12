@@ -78,7 +78,8 @@ export async function listAttendanceEventsByMonth(userName: string, month: strin
       .from("attendance_events")
       .select("*")
       .eq("user_name", userName)
-      .like("work_date", `${month}%`)
+      .gte("work_date", `${month}-01`)
+      .lte("work_date", `${month}-31`)
       .order("work_date", { ascending: true })
       .order("event_time", { ascending: true });
     return (data ?? []) as AttendanceEvent[];
