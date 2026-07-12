@@ -47,7 +47,8 @@ export async function GET(request: Request) {
       let query = createSupabaseServerClient()
         .from("attendance_records")
         .select("*")
-        .like("work_date", `${month}%`)
+        .gte("work_date", `${month}-01`)
+        .lte("work_date", `${month}-31`)
         .order("user_name")
         .order("work_date");
       if (userName) query = query.eq("user_name", userName);

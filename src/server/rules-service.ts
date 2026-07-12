@@ -156,7 +156,8 @@ export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyO
         supabase
           .from("attendance_records")
           .select("user_name, start_time, end_time, overtime_start, work_date")
-          .like("work_date", `${month}%`)
+          .gte("work_date", `${month}-01`)
+          .lte("work_date", `${month}-31`)
           .in("status", ["present", "remote"]),
       ]);
     if (attendanceError) {
