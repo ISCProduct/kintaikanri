@@ -1,5 +1,5 @@
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
-import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase-server";
+import { createSupabaseServerClient } from "@/server/supabase-server";
 
 async function getWebhookUrl(): Promise<string | null> {
   try {
@@ -9,19 +9,18 @@ async function getWebhookUrl(): Promise<string | null> {
       );
       return rows[0]?.value || null;
     }
-    if (shouldUseSupabase()) {
-      const { data, error } = await createSupabaseServerClient()
-        .from("system_rules")
-        .select("value")
-        .eq("key", "discord_webhook_url");
-      if (error) {
-        console.error("[Discord] system_rules読み取りエラー:", error.message);
-        return null;
-      }
-      const val = (data?.[0] as { value: string } | undefined)?.value;
-      if (!val) console.warn("[Discord] discord_webhook_urlが未設定またはDB未登録です");
-      return val || null;
+    // shouldUseSupabase() に依存せず常に試みる（getRuleValue と同じ方針）
+    const { data, error } = await createSupabaseServerClient()
+      .from("system_rules")
+      .select("value")
+      .eq("key", "discord_webhook_url");
+    if (error) {
+      console.error("[Discord] system_rules読み取りエラー:", error.message);
+      return null;
     }
+    const val = (data?.[0] as { value: string } | undefined)?.value;
+    if (!val) console.warn("[Discord] discord_webhook_urlが未設定またはDB未登録です");
+    return val || null;
   } catch (e) {
     console.error("[Discord] getWebhookUrl例外:", e);
   }

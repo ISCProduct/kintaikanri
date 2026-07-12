@@ -20,11 +20,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ balance });
     }
 
+    if (month && !/^\d{4}-\d{2}$/.test(month)) {
+      return NextResponse.json({ message: "month は YYYY-MM 形式で指定してください。" }, { status: 400 });
+    }
+
     const [summaries, overtime] = await Promise.all([
       getPaidLeaveSummaries(),
       month ? getMonthlyOvertimeSummary(month) : Promise.resolve([]),
     ]);
-    return NextResponse.json({ summaries, overtime });
+    return NextResponse.json(
+      { summaries, overtime },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (e) {
     const message = e instanceof Error ? e.message : "不明なエラーが発生しました。";
     return NextResponse.json({ message }, { status: 500 });

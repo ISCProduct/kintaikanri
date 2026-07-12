@@ -1,7 +1,10 @@
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient } from "@/server/supabase-server";
 import type { SystemRule, PaidLeaveBalance, PaidLeaveSummary, MonthlyOvertimeSummary } from "@/types/rules";
+import type { AttendanceEvent } from "@/types/attendance";
 import { cacheLife, cacheTag } from "next/cache";
+import { calcWork } from "@/lib/attendance-calc";
+import { listAttendanceEventsByMonth } from "@/server/attendance-events-service";
 
 // ── システムルール ──────────────────────────────────────────────────────
 
@@ -44,11 +47,12 @@ async function getRuleValue(key: string, defaultValue: string): Promise<string> 
     );
     return rows[0]?.value ?? defaultValue;
   }
-  const { data } = await createSupabaseServerClient()
+  const { data, error } = await createSupabaseServerClient()
     .from("system_rules")
     .select("value")
     .eq("key", key)
-    .single();
+    .maybeSingle();
+  if (error) return defaultValue;
   return (data as { value: string } | null)?.value ?? defaultValue;
 }
 
@@ -107,84 +111,100 @@ export async function getPaidLeaveHistory(userName?: string): Promise<PaidLeaveB
 // ── 月次残業集計 ────────────────────────────────────────────────────────
 
 export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyOvertimeSummary[]> {
-  "use cache";
-  cacheLife({ stale: 30, revalidate: 60, expire: 180 });
-  cacheTag("monthly-overtime");
-
+  // 管理画面の「集計する」は都度最新データを見る（キャッシュすると障害時の空結果が残る）
   const thresholdHours = parseFloat(await getRuleValue("overtime_threshold_hours", "30"));
   const thresholdMinutes = thresholdHours * 60;
 
+  type Row = {
+    user_name: string;
+    start_time: string;
+    end_time: string | null;
+    overtime_start: string | null;
+    work_date: string;
+  };
+
+  let records: Row[] = [];
+  let grantedUsers = new Set<string>();
+
   if (hasDatabaseUrl()) {
-    const { rows } = await getPgPool().query<{
-      user_name: string;
-      total_work_minutes: number;
-      overtime_minutes: number;
-      already_granted: boolean;
-    }>(
-      `WITH daily AS (
-         SELECT
-           user_name,
-           GREATEST(0, EXTRACT(EPOCH FROM (end_time - start_time)) / 60)::integer      AS work_minutes,
-           GREATEST(0, EXTRACT(EPOCH FROM (end_time - start_time)) / 60 - 480)::integer AS overtime_minutes
-         FROM attendance_records
-         WHERE to_char(work_date, 'YYYY-MM') = $1
-           AND status IN ('present', 'remote')
-           AND end_time IS NOT NULL
-       )
-       SELECT
-         user_name,
-         SUM(work_minutes)::integer     AS total_work_minutes,
-         SUM(overtime_minutes)::integer AS overtime_minutes,
-         EXISTS (
-           SELECT 1 FROM paid_leave_balances plb
-           WHERE plb.user_name = daily.user_name
-             AND plb.target_month = $1
-             AND plb.granted_days > 0
-         ) AS already_granted
-       FROM daily
-       GROUP BY user_name
-       ORDER BY SUM(overtime_minutes) DESC`,
-      [month],
-    );
-    return rows.map((r) => ({
-      user_name: r.user_name,
-      month,
-      total_work_minutes: r.total_work_minutes,
-      overtime_minutes: r.overtime_minutes,
-      overtime_hours: Math.round(r.overtime_minutes / 60 * 10) / 10,
-      exceeds_threshold: r.overtime_minutes >= thresholdMinutes,
-      already_granted: r.already_granted,
+    const [{ rows }, leaveRows] = await Promise.all([
+      getPgPool().query<Row>(
+        `select user_name, start_time::text, end_time::text, overtime_start::text, work_date::text
+         from attendance_records
+         where to_char(work_date, 'YYYY-MM') = $1
+           and status in ('present', 'remote')
+           and end_time is not null`,
+        [month],
+      ),
+      getPgPool().query<{ user_name: string }>(
+        `select distinct user_name from paid_leave_balances
+         where target_month = $1 and granted_days > 0`,
+        [month],
+      ),
+    ]);
+    records = rows;
+    grantedUsers = new Set(leaveRows.rows.map((r) => r.user_name));
+  } else {
+    const supabase = createSupabaseServerClient();
+    const [{ data: leaveData, error: leaveError }, { data: attendanceData, error: attendanceError }] =
+      await Promise.all([
+        supabase
+          .from("paid_leave_balances")
+          .select("user_name")
+          .eq("target_month", month)
+          .gt("granted_days", 0),
+        supabase
+          .from("attendance_records")
+          .select("user_name, start_time, end_time, overtime_start, work_date")
+          .like("work_date", `${month}%`)
+          .in("status", ["present", "remote"]),
+      ]);
+    if (attendanceError) {
+      throw new Error(`勤怠データの取得に失敗しました: ${attendanceError.message}`);
+    }
+    if (leaveError) {
+      throw new Error(`有給データの取得に失敗しました: ${leaveError.message}`);
+    }
+    grantedUsers = new Set((leaveData ?? []).map((r: { user_name: string }) => r.user_name));
+    records = ((attendanceData ?? []) as Row[]).map((r) => ({
+      ...r,
+      // Supabase の date/time 型を HH:MM / YYYY-MM-DD に正規化
+      work_date: String(r.work_date).slice(0, 10),
+      start_time: String(r.start_time).slice(0, 5),
+      end_time: r.end_time ? String(r.end_time).slice(0, 5) : null,
+      overtime_start: r.overtime_start ? String(r.overtime_start).slice(0, 5) : null,
     }));
   }
 
-  // Supabase パス: クライアント側で集計
-  const [{ data: leaveData }, { data: attendanceData }] = await Promise.all([
-    createSupabaseServerClient()
-      .from("paid_leave_balances")
-      .select("user_name")
-      .eq("target_month", month)
-      .gt("granted_days", 0),
-    createSupabaseServerClient()
-      .from("attendance_records")
-      .select("user_name, start_time, end_time")
-      .like("work_date", `${month}%`)
-      .in("status", ["present", "remote"]),
-  ]);
-
-  const grantedUsers = new Set((leaveData ?? []).map((r: { user_name: string }) => r.user_name));
-  const records = (attendanceData ?? []) as Array<{ user_name: string; start_time: string; end_time: string | null }>;
+  const names = Array.from(new Set(records.map((r) => r.user_name)));
+  const eventsByKey: Record<string, AttendanceEvent[]> = {};
+  await Promise.all(
+    names.map(async (name) => {
+      try {
+        const events = await listAttendanceEventsByMonth(name, month);
+        for (const evt of events) {
+          const date = String(evt.work_date).slice(0, 10);
+          (eventsByKey[`${evt.user_name}|${date}`] ??= []).push({
+            ...evt,
+            work_date: date,
+            event_time: String(evt.event_time).slice(0, 5),
+          });
+        }
+      } catch {
+        // イベント取得失敗でも勤務時間集計は続行
+      }
+    }),
+  );
 
   const userMap: Record<string, { work: number; overtime: number }> = {};
   for (const r of records) {
     if (!r.end_time) continue;
-    const [sh, sm] = r.start_time.split(":").map(Number);
-    const [eh, em] = r.end_time.split(":").map(Number);
-    const workMin = (eh * 60 + em) - (sh * 60 + sm);
-    if (workMin <= 0) continue;
-    const overtimeMin = Math.max(0, workMin - 480);
+    const dayEvents = eventsByKey[`${r.user_name}|${r.work_date}`] ?? [];
+    const { work, overtime } = calcWork(r.start_time, r.end_time, dayEvents, r.overtime_start);
+    if (work <= 0 && overtime <= 0) continue;
     if (!userMap[r.user_name]) userMap[r.user_name] = { work: 0, overtime: 0 };
-    userMap[r.user_name].work += workMin;
-    userMap[r.user_name].overtime += overtimeMin;
+    userMap[r.user_name].work += work;
+    userMap[r.user_name].overtime += overtime;
   }
 
   return Object.entries(userMap)
@@ -193,7 +213,7 @@ export async function getMonthlyOvertimeSummary(month: string): Promise<MonthlyO
       month,
       total_work_minutes: work,
       overtime_minutes: overtime,
-      overtime_hours: Math.round(overtime / 60 * 10) / 10,
+      overtime_hours: Math.round((overtime / 60) * 10) / 10,
       exceeds_threshold: overtime >= thresholdMinutes,
       already_granted: grantedUsers.has(user_name),
     }))
