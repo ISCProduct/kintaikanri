@@ -33,7 +33,9 @@ insert into system_rules (key, value, label) values
   ('overtime_threshold_hours', '30',  '月次残業時間の閾値（時間）'),
   ('overtime_leave_grant_days', '1',  '閾値超過時の有給付与日数'),
   ('admin_pin',                '0000', '管理者PINコード'),
-  ('discord_webhook_url',      '',     'Discord通知用WebhookURL')
+  ('discord_webhook_url',      '',     'Discord通知用WebhookURL'),
+  ('standard_start_time',      '09:00', '所定出勤時刻'),
+  ('standard_end_time',        '18:00', '所定退勤時刻')
 on conflict (key) do nothing;
 
 -- 有給残日数管理
@@ -78,6 +80,23 @@ create table if not exists attendance_events (
   created_at timestamptz not null default now()
 );
 create index if not exists attendance_events_user_date on attendance_events (user_name, work_date);
+
+-- 有給休暇申請
+create table if not exists leave_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_name text not null,
+  leave_date date not null,
+  leave_type text not null check (leave_type in ('full', 'half_am', 'half_pm')),
+  days numeric(3,1) not null default 1,
+  reason text not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'approved', 'rejected')),
+  approver_name text,
+  approver_comment text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists leave_requests_user_date on leave_requests (user_name, leave_date);
 
 -- 勤怠修正申請
 create table if not exists correction_requests (

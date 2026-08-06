@@ -658,6 +658,59 @@ th {
   vertical-align: middle;
 }
 
+.alert-banner {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.alert-banner-warn {
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  color: #9a3412;
+}
+
+.alert-banner-danger {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
+}
+
+.flag-late,
+.flag-early {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.flag-late {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.flag-early {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.cal-flags {
+  display: flex;
+  gap: 0.2rem;
+  margin-top: 0.15rem;
+}
+
+.late-early-flags {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+}
+
 @media (max-width: 900px) {
   .summary-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

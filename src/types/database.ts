@@ -64,6 +64,48 @@ export type Database = {
         };
         Relationships: [];
       };
+      leave_requests: {
+        Row: {
+          id: string;
+          user_name: string;
+          leave_date: string;
+          leave_type: "full" | "half_am" | "half_pm";
+          days: number;
+          reason: string;
+          status: "pending" | "approved" | "rejected";
+          approver_name: string | null;
+          approver_comment: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_name: string;
+          leave_date: string;
+          leave_type: "full" | "half_am" | "half_pm";
+          days?: number;
+          reason: string;
+          status?: "pending" | "approved" | "rejected";
+          approver_name?: string | null;
+          approver_comment?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_name?: string;
+          leave_date?: string;
+          leave_type?: "full" | "half_am" | "half_pm";
+          days?: number;
+          reason?: string;
+          status?: "pending" | "approved" | "rejected";
+          approver_name?: string | null;
+          approver_comment?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       monthly_closings: {
         Row: { month: string; closed_by: string; closed_at: string };
         Insert: { month: string; closed_by: string; closed_at?: string };

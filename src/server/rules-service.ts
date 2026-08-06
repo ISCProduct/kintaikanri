@@ -248,7 +248,26 @@ export async function getGrantDays(): Promise<number> {
   return parseFloat(await getRuleValue("overtime_leave_grant_days", "1"));
 }
 
-export async function recordVacationUsed(userName: string, workDate: string): Promise<void> {
+export async function getOvertimeThresholdHours(): Promise<number> {
+  return parseFloat(await getRuleValue("overtime_threshold_hours", "30"));
+}
+
+export async function getStandardWorkTimes(): Promise<{ start: string; end: string }> {
+  const [start, end] = await Promise.all([
+    getRuleValue("standard_start_time", "09:00"),
+    getRuleValue("standard_end_time", "18:00"),
+  ]);
+  return {
+    start: start.slice(0, 5) || "09:00",
+    end: end.slice(0, 5) || "18:00",
+  };
+}
+
+export async function recordVacationUsed(
+  userName: string,
+  workDate: string,
+  days = 1,
+): Promise<void> {
   const reason = `${workDate} 有給休暇取得`;
   const month = workDate.slice(0, 7);
   if (hasDatabaseUrl()) {
@@ -260,8 +279,8 @@ export async function recordVacationUsed(userName: string, workDate: string): Pr
     if (parseInt(rows[0]?.count ?? "0") > 0) return;
     await getPgPool().query(
       `insert into paid_leave_balances (user_name, granted_days, used_days, reason, target_month)
-       values ($1, 0, 1, $2, $3)`,
-      [userName, reason, month],
+       values ($1, 0, $2, $3, $4)`,
+      [userName, days, reason, month],
     );
     return;
   }
@@ -273,7 +292,7 @@ export async function recordVacationUsed(userName: string, workDate: string): Pr
   if ((count ?? 0) > 0) return;
   await createSupabaseServerClient()
     .from("paid_leave_balances")
-    .insert({ user_name: userName, granted_days: 0, used_days: 1, reason, target_month: month });
+    .insert({ user_name: userName, granted_days: 0, used_days: days, reason, target_month: month });
 }
 
 export async function getUserPaidLeaveBalance(userName: string): Promise<PaidLeaveSummary | null> {
