@@ -23,6 +23,15 @@ function getLocalDateString() {
   return `${y}-${m}-${day}`;
 }
 
+function shiftDate(dateStr: string, deltaDays: number) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  d.setDate(d.getDate() + deltaDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 const USER_NAME_KEY = "kintai_user_name";
 const USER_NAME_LIST_KEY = "kintai_user_name_list";
 const OTHER_VALUE = "__other__";
@@ -212,7 +221,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
 
   const mergeEventIntoMaps = (event: AttendanceEvent) => {
     setTodayEvents((prev) => {
-      if (event.work_date !== today) return prev;
+      if (event.work_date !== activeWorkDate) return prev;
       if (prev.some((e) => e.id === event.id)) return prev;
       return [...prev, event];
     });
@@ -269,10 +278,29 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     }
   };
 
+  const yesterday = useMemo(() => shiftDate(today, -1), [today]);
+  const activeWorkDate = useMemo(() => {
+    if (!userName) return today;
+    const openRecords = records
+      .filter(
+        (r) =>
+          r.user_name === userName &&
+          !r.end_time &&
+          ["present", "remote"].includes(r.status),
+      )
+      .sort((a, b) => b.work_date.localeCompare(a.work_date));
+    const active =
+      openRecords.find((r) => r.work_date === today) ??
+      openRecords.find((r) => r.work_date === yesterday) ??
+      null;
+    return active?.work_date ?? today;
+  }, [records, userName, today, yesterday]);
+
   useEffect(() => {
     if (!userName) { setTodayEvents([]); return; }
-    void fetchTodayEvents(userName, today);
-  }, [userName, today]);
+    void fetchTodayEvents(userName, activeWorkDate);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userName, activeWorkDate]);
 
   useEffect(() => {
     if (!userName) { setCurrentMonthEventMap({}); return; }
@@ -412,7 +440,23 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     [],
   );
 
-  const todayRecord = records.find((record) => record.work_date === today && record.user_name === userName) ?? null;
+  const openRecords = records
+    .filter(
+      (r) =>
+        r.user_name === userName &&
+        !r.end_time &&
+        ["present", "remote"].includes(r.status),
+    )
+    .sort((a, b) => b.work_date.localeCompare(a.work_date));
+  // 当日の未退勤、または前日からの翌日跨ぎ勤務を「進行中シフト」とする
+  const activeShift =
+    openRecords.find((r) => r.work_date === today) ??
+    openRecords.find((r) => r.work_date === yesterday) ??
+    null;
+  const todayRecord =
+    records.find((record) => record.work_date === today && record.user_name === userName) ??
+    activeShift;
+  const isOvernightShift = !!activeShift && activeShift.work_date < today;
   const lastBreakEvent = [...todayEvents].reverse().find((e) => e.event_type === "break_start" || e.event_type === "break_end");
   const hasActiveBreak = lastBreakEvent?.event_type === "break_start";
   const lastOutingEvent = [...todayEvents].reverse().find((e) => e.event_type === "outing_start" || e.event_type === "outing_return");
@@ -420,7 +464,12 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const isClockOut = !!todayRecord?.end_time;
 
   const missingClockOuts = records.filter(
-    (r) => r.user_name === userName && !r.end_time && r.work_date < today && ["present", "remote"].includes(r.status),
+    (r) =>
+      r.user_name === userName &&
+      !r.end_time &&
+      r.work_date < today &&
+      r.id !== activeShift?.id &&
+      ["present", "remote"].includes(r.status),
   );
   const selectedMissingRecord = missingClockOuts.find((r) => r.id === missingFixId) ?? null;
   const monthPrefix = today.slice(0, 7);
@@ -544,7 +593,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     const record = await postAttendance({
       action: "clockout",
       userName: userName.trim(),
-      workDate: getLocalDateString(),
+      workDate: activeWorkDate,
       endTime: now.toTimeString().slice(0, 5),
     });
     if (record) { upsertRecord(record); setMessage("退勤を記録しました。"); }
@@ -561,7 +610,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         userName: userName.trim(),
-        workDate: getLocalDateString(),
+        workDate: activeWorkDate,
         eventType,
         eventTime: now.toTimeString().slice(0, 5),
       }),
@@ -584,7 +633,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     const record = await postAttendance({
       action: "overtime_start",
       userName: userName.trim(),
-      workDate: getLocalDateString(),
+      workDate: activeWorkDate,
       overtimeStart: now.toTimeString().slice(0, 5),
     });
     if (record) { upsertRecord(record); setMessage("残業開始を記録しました。"); }
@@ -791,8 +840,13 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               {todayRecord?.start_time && (
                 <span className="summary-sub">
                   {todayRecord.start_time} 〜 {todayRecord.end_time ?? "打刻中"}
+                  {isOvernightShift ||
+                  (todayRecord.end_time &&
+                    todayRecord.end_time.slice(0, 5) < todayRecord.start_time.slice(0, 5))
+                    ? "（翌日跨ぎ）"
+                    : ""}
                   {todayRecord.end_time && (() => {
-                    const { work, overtime } = calcWork(
+                    const { work, overtime, breakMinutes } = calcWork(
                       todayRecord.start_time,
                       todayRecord.end_time,
                       todayEvents,
@@ -800,7 +854,8 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                     );
                     return (
                       <>
-                        {" "}（{formatMinutes(work)}
+                        {" "}（勤務 {formatMinutes(work)}
+                        {breakMinutes > 0 ? ` / 休憩等 ${formatMinutes(breakMinutes)}` : ""}
                         {overtime > 0 ? ` / 残業 ${formatMinutes(overtime)}` : ""}）
                       </>
                     );
@@ -1152,37 +1207,27 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                       <tbody>
                         {historyRecords.map((record) => {
                           const dayEvents = monthEvents[record.work_date] ?? [];
-                          const { work, overtime } = calcWork(
+                          const { work, overtime, breakMinutes } = calcWork(
                             record.start_time,
                             record.end_time,
                             dayEvents,
                             record.overtime_start,
                           );
-                          const flags = detectLateEarly(
-                            record.start_time,
-                            record.end_time,
-                            standardTimes,
-                            {
-                              skip:
-                                record.status === "vacation" ||
-                                record.status === "holiday" ||
-                                (record.note?.includes("有給") ?? false),
-                            },
-                          );
+                          const overnight =
+                            !!record.end_time &&
+                            record.end_time.slice(0, 5) < record.start_time.slice(0, 5);
                           return (
                             <Fragment key={record.id}>
                               <tr>
-                                <td>{record.work_date}</td>
-                                <td>
-                                  {record.start_time}
-                                  {flags.isLate && <span className="flag-late">遅刻</span>}
-                                </td>
-                                <td>
-                                  {record.end_time ?? "-"}
-                                  {flags.isEarlyLeave && <span className="flag-early">早退</span>}
-                                </td>
+                                <td>{record.work_date}{overnight ? "（跨）" : ""}</td>
+                                <td>{record.start_time}</td>
+                                <td>{record.end_time ?? "-"}</td>
                                 <td>{record.overtime_start ?? "-"}</td>
-                                <td>{record.end_time ? formatMinutes(work) : "-"}</td>
+                                <td>
+                                  {record.end_time
+                                    ? `${formatMinutes(work)}${breakMinutes > 0 ? `（休憩等 ${formatMinutes(breakMinutes)}）` : ""}`
+                                    : "-"}
+                                </td>
                                 <td className={overtime > 0 ? "overtime-warn" : ""}>{record.end_time ? formatMinutes(overtime) : "-"}</td>
                                 <td><span className="status-chip">{statusLabels[record.status]}</span></td>
                                 <td>{record.note ?? "-"}</td>
