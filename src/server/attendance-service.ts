@@ -102,29 +102,54 @@ export async function clockIn(
   return { data: (rows?.[0] ?? null) as AttendanceRecord | null, error: error ? { message: error.message } : null };
 }
 
-// ── 退勤打刻：既存レコードの end_time を更新 ─────────────────────────────
+// ── 退勤打刻：既存の未退勤レコードの end_time を更新 ─────────────────────
+// workDate に一致する未退勤が無い場合、直近の未退勤（翌日跨ぎ）を探す
 export async function clockOut(
   userName: string,
   workDate: string,
   endTime: string,
 ): Promise<Result<AttendanceRecord>> {
+  const notFound = notFoundError("出勤中の記録がありません。先に出勤打刻してください。");
+
   if (hasDatabaseUrl()) {
     const pool = getPgPool();
-    const { rows } = await pool.query<AttendanceRecord>(
+    let { rows } = await pool.query<AttendanceRecord>(
       `update attendance_records set end_time = $1
-       where user_name = $2 and work_date = $3
+       where user_name = $2 and work_date = $3 and end_time is null
        returning ${SELECT_COLS}`,
       [endTime, userName, workDate],
     );
     if (!rows[0]) {
-      return { data: null, error: notFoundError("本日の出勤記録がありません。先に出勤打刻してください。") };
+      ({ rows } = await pool.query<AttendanceRecord>(
+        `update attendance_records set end_time = $1
+         where id = (
+           select id from attendance_records
+           where user_name = $2 and end_time is null
+             and status in ('present', 'remote')
+           order by work_date desc
+           limit 1
+         )
+         returning ${SELECT_COLS}`,
+        [endTime, userName],
+      ));
     }
+    if (!rows[0]) return { data: null, error: notFound };
     return { data: rows[0], error: null };
   }
 
   if (!shouldUseSupabase()) {
-    const result = clockOutLocal(userName, workDate, endTime);
-    if (!result) return { data: null, error: notFoundError("本日の出勤記録がありません。先に出勤打刻してください。") };
+    const result =
+      clockOutLocal(userName, workDate, endTime) ??
+      (() => {
+        const open = listLocalAttendanceRecords(90).find(
+          (r) =>
+            r.user_name === userName &&
+            !r.end_time &&
+            ["present", "remote"].includes(r.status),
+        );
+        return open ? clockOutLocal(userName, open.work_date, endTime) : null;
+      })();
+    if (!result) return { data: null, error: notFound };
     return { data: result, error: null };
   }
 
@@ -135,10 +160,31 @@ export async function clockOut(
     .update({ end_time: endTime })
     .eq("user_name", userName)
     .eq("work_date", workDate)
+    .is("end_time", null)
     .select("*");
   if (error) return { data: null, error: { message: error.message } };
-  if (!rows?.[0]) return { data: null, error: notFoundError("本日の出勤記録がありません。先に出勤打刻してください。") };
-  return { data: rows[0] as AttendanceRecord, error: null };
+  if (rows?.[0]) return { data: rows[0] as AttendanceRecord, error: null };
+
+  const { data: openRows, error: openError } = await supabase
+    .from("attendance_records")
+    .select("id, work_date")
+    .eq("user_name", userName)
+    .is("end_time", null)
+    .in("status", ["present", "remote"])
+    .order("work_date", { ascending: false })
+    .limit(1);
+  if (openError) return { data: null, error: { message: openError.message } };
+  const open = openRows?.[0] as { id: string; work_date: string } | undefined;
+  if (!open) return { data: null, error: notFound };
+
+  const { data: updated, error: updError } = await supabase
+    .from("attendance_records")
+    .update({ end_time: endTime })
+    .eq("id", open.id)
+    .select("*");
+  if (updError) return { data: null, error: { message: updError.message } };
+  if (!updated?.[0]) return { data: null, error: notFound };
+  return { data: updated[0] as AttendanceRecord, error: null };
 }
 
 // ── 手入力フォーム：UPSERT（全フィールド上書き） ─────────────────────────
@@ -348,32 +394,71 @@ export async function deleteAttendanceRecord(id: string) {
 // 旧 createAttendanceRecord は upsert へ委譲（後方互換）
 export const createAttendanceRecord = upsertAttendanceRecord;
 
-// 残業開始打刻：当日レコードの overtime_start を更新
+// 残業開始打刻：未退勤レコードの overtime_start を更新（翌日跨ぎ対応）
 export async function recordOvertimeStart(
   userName: string,
   workDate: string,
   overtimeStart: string,
 ): Promise<Result<AttendanceRecord>> {
+  const notFound = notFoundError("出勤中のレコードが見つかりません。先に出勤打刻をしてください。");
+
   if (hasDatabaseUrl()) {
-    const { rows } = await getPgPool().query<AttendanceRecord>(
+    const pool = getPgPool();
+    let { rows } = await pool.query<AttendanceRecord>(
       `update attendance_records set overtime_start = $1
-       where user_name = $2 and work_date = $3
+       where user_name = $2 and work_date = $3 and end_time is null
        returning ${SELECT_COLS}`,
       [overtimeStart, userName, workDate],
     );
-    if (!rows[0]) return { data: null, error: notFoundError("本日の出勤レコードが見つかりません。先に出勤打刻をしてください。") };
+    if (!rows[0]) {
+      ({ rows } = await pool.query<AttendanceRecord>(
+        `update attendance_records set overtime_start = $1
+         where id = (
+           select id from attendance_records
+           where user_name = $2 and end_time is null
+             and status in ('present', 'remote')
+           order by work_date desc
+           limit 1
+         )
+         returning ${SELECT_COLS}`,
+        [overtimeStart, userName],
+      ));
+    }
+    if (!rows[0]) return { data: null, error: notFound };
     return { data: rows[0], error: null };
   }
   if (shouldUseSupabase()) {
-    const { data: rows, error } = await createSupabaseServerClient()
+    const supabase = createSupabaseServerClient();
+    const { data: rows, error } = await supabase
       .from("attendance_records")
       .update({ overtime_start: overtimeStart })
       .eq("user_name", userName)
       .eq("work_date", workDate)
+      .is("end_time", null)
       .select("*");
     if (error) return { data: null, error: { message: error.message } };
-    if (!rows?.[0]) return { data: null, error: notFoundError("本日の出勤レコードが見つかりません。先に出勤打刻をしてください。") };
-    return { data: rows[0] as AttendanceRecord, error: null };
+    if (rows?.[0]) return { data: rows[0] as AttendanceRecord, error: null };
+
+    const { data: openRows, error: openError } = await supabase
+      .from("attendance_records")
+      .select("id")
+      .eq("user_name", userName)
+      .is("end_time", null)
+      .in("status", ["present", "remote"])
+      .order("work_date", { ascending: false })
+      .limit(1);
+    if (openError) return { data: null, error: { message: openError.message } };
+    const openId = (openRows?.[0] as { id: string } | undefined)?.id;
+    if (!openId) return { data: null, error: notFound };
+
+    const { data: updated, error: updError } = await supabase
+      .from("attendance_records")
+      .update({ overtime_start: overtimeStart })
+      .eq("id", openId)
+      .select("*");
+    if (updError) return { data: null, error: { message: updError.message } };
+    if (!updated?.[0]) return { data: null, error: notFound };
+    return { data: updated[0] as AttendanceRecord, error: null };
   }
   return { data: null, error: { message: "データベース未設定です。" } };
 }
