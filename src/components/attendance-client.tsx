@@ -5,6 +5,8 @@ import type { AttendanceRecord, AttendanceStatus, AttendanceEvent, AttendanceEve
 import type { PaidLeaveSummary } from "@/types/rules";
 import { AttendanceCalendar } from "@/components/attendance-calendar";
 import { calcWork, formatMinutes } from "@/lib/attendance-calc";
+import { detectLateEarly, type StandardWorkTimes } from "@/lib/late-early";
+import type { SystemRule } from "@/types/rules";
 
 const eventTypeLabels: Record<AttendanceEventType, string> = {
   break_start: "休憩開始",
@@ -115,6 +117,9 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [pinNew2, setPinNew2] = useState("");
   const [pinChangeMsg, setPinChangeMsg] = useState("");
 
+  const [otThresholdHours, setOtThresholdHours] = useState(30);
+  const [standardTimes, setStandardTimes] = useState<StandardWorkTimes>({ start: "09:00", end: "18:00" });
+
   // ユーザー切替時の古いレスポンスを破棄するための世代カウンタ
   const recordsFetchGen = useRef(0);
   const historyRecordsFetchGen = useRef(0);
@@ -131,6 +136,23 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
         setRegisteredUsers((d.users ?? []).map((u) => u.user_name));
       })
       .catch(() => setRegisteredUsers([]));
+  }, []);
+
+  useEffect(() => {
+    void fetch("/api/rules")
+      .then((r) => r.json())
+      .then((d: { rules?: SystemRule[] }) => {
+        const rules = d.rules ?? [];
+        const threshold = rules.find((r) => r.key === "overtime_threshold_hours")?.value;
+        if (threshold) setOtThresholdHours(parseFloat(threshold) || 30);
+        const start = rules.find((r) => r.key === "standard_start_time")?.value;
+        const end = rules.find((r) => r.key === "standard_end_time")?.value;
+        setStandardTimes({
+          start: (start ?? "09:00").slice(0, 5),
+          end: (end ?? "18:00").slice(0, 5),
+        });
+      })
+      .catch(() => undefined);
   }, []);
 
   // 初期ロード：localStorage から復元 + sessionStorage で認証確認
@@ -462,6 +484,10 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     const events = currentMonthEventMap[r.work_date] ?? [];
     return sum + calcWork(r.start_time, r.end_time, events, r.overtime_start).overtime;
   }, 0);
+  const otThresholdMinutes = otThresholdHours * 60;
+  const otRatio = otThresholdMinutes > 0 ? monthlyOvertimeMinutes / otThresholdMinutes : 0;
+  const otAlertLevel: "none" | "warn" | "danger" =
+    otRatio >= 1 ? "danger" : otRatio >= 0.8 ? "warn" : "none";
 
   const postAttendance = async (body: Record<string, unknown>): Promise<AttendanceRecord | null> => {
     const response = await fetch("/api/attendance", {
@@ -796,6 +822,17 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
             </section>
           )}
 
+          {otAlertLevel !== "none" && (
+            <section
+              className={otAlertLevel === "danger" ? "alert-banner alert-banner-danger" : "alert-banner alert-banner-warn"}
+              role="status"
+            >
+              {otAlertLevel === "danger"
+                ? `当月の残業が閾値（${otThresholdHours}時間）に達しています（${formatMinutes(monthlyOvertimeMinutes)}）。`
+                : `当月の残業が閾値の80%に近づいています（${formatMinutes(monthlyOvertimeMinutes)} / ${otThresholdHours}時間）。`}
+            </section>
+          )}
+
           <section className="summary-grid">
             <article className="summary-card">
               <span className="summary-label">本日の勤務状態</span>
@@ -825,6 +862,26 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
                   })()}
                 </span>
               )}
+              {todayRecord && (() => {
+                const flags = detectLateEarly(
+                  todayRecord.start_time,
+                  todayRecord.end_time,
+                  standardTimes,
+                  {
+                    skip:
+                      todayRecord.status === "vacation" ||
+                      todayRecord.status === "holiday" ||
+                      (todayRecord.note?.includes("有給") ?? false),
+                  },
+                );
+                if (!flags.isLate && !flags.isEarlyLeave) return null;
+                return (
+                  <span className="summary-sub late-early-flags">
+                    {flags.isLate && <span className="flag-late">遅刻</span>}
+                    {flags.isEarlyLeave && <span className="flag-early">早退</span>}
+                  </span>
+                );
+              })()}
               {todayRecord?.overtime_start && (
                 <span className="summary-sub" style={{ color: "#c2410c" }}>
                   残業開始: {todayRecord.overtime_start}

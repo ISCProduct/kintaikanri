@@ -7,6 +7,10 @@ import type { UserProfile } from "@/server/user-profile-service";
 
 const ADMIN_SESSION_KEY = "kintai_admin_authed";
 
+const HIDDEN_RULE_KEYS = new Set(["admin_pin", "discord_webhook_url"]);
+const GRANT_RULE_KEYS = new Set(["overtime_threshold_hours", "overtime_leave_grant_days"]);
+const STANDARD_TIME_KEYS = ["standard_start_time", "standard_end_time"] as const;
+
 function getThisMonth() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -18,14 +22,18 @@ type Props = {
 };
 
 export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
-  const [rules, setRules] = useState<SystemRule[]>(initialRules.filter((r) => r.key !== "admin_pin"));
+  const visibleRules = initialRules.filter((r) => !HIDDEN_RULE_KEYS.has(r.key));
+  const [rules, setRules] = useState<SystemRule[]>(visibleRules.filter((r) => GRANT_RULE_KEYS.has(r.key)));
+  const [standardRules, setStandardRules] = useState<SystemRule[]>(
+    visibleRules.filter((r) => (STANDARD_TIME_KEYS as readonly string[]).includes(r.key)),
+  );
   const [summaries, setSummaries] = useState<PaidLeaveSummary[]>(initialSummaries);
   const [overtime, setOvertime] = useState<MonthlyOvertimeSummary[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(getThisMonth());
   const [checkingOvertime, setCheckingOvertime] = useState(false);
   const [overtimeChecked, setOvertimeChecked] = useState(false);
   const [editValues, setEditValues] = useState<Record<string, string>>(
-    Object.fromEntries(initialRules.filter((r) => r.key !== "admin_pin").map((r) => [r.key, r.value])),
+    Object.fromEntries(visibleRules.map((r) => [r.key, r.value])),
   );
   const [saving, setSaving] = useState(false);
   const [granting, setGranting] = useState<string | null>(null);
@@ -59,8 +67,9 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
     setSaving(true);
     setMessage("");
     try {
+      const targets = [...rules, ...standardRules];
       await Promise.all(
-        rules.map((r) =>
+        targets.map((r) =>
           fetch("/api/rules", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -69,6 +78,7 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
         ),
       );
       setRules((prev) => prev.map((r) => ({ ...r, value: editValues[r.key] })));
+      setStandardRules((prev) => prev.map((r) => ({ ...r, value: editValues[r.key] })));
       showMsg("設定を保存しました。");
     } catch {
       showMsg("保存に失敗しました。", "error");
@@ -282,6 +292,33 @@ export function AdminSettingsClient({ initialRules, initialSummaries }: Props) {
         {message && (
           <p className={messageType === "error" ? "message message-error" : "message"}>{message}</p>
         )}
+      </section>
+
+      <section className="card">
+        <h2 className="section-title">所定勤務時間</h2>
+        <p className="description">遅刻・早退判定の基準時刻です。</p>
+        <div className="rules-grid">
+          {standardRules.map((rule) => (
+            <label key={rule.key} className="field">
+              {rule.label}
+              <input
+                type="time"
+                value={(editValues[rule.key] ?? rule.value).slice(0, 5)}
+                onChange={(e) =>
+                  setEditValues((prev) => ({ ...prev, [rule.key]: e.target.value }))
+                }
+              />
+            </label>
+          ))}
+          {standardRules.length === 0 && (
+            <p className="description">
+              所定時刻のルールが未登録です。DB に <code>standard_start_time</code> / <code>standard_end_time</code> を追加してください。
+            </p>
+          )}
+        </div>
+        <button className="button rules-save-button" onClick={() => void handleSaveRules()} disabled={saving}>
+          {saving ? "保存中..." : "所定時刻を保存"}
+        </button>
       </section>
 
       {/* 月次残業集計 */}
