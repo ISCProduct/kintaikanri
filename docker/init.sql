@@ -87,6 +87,8 @@ create table if not exists leave_requests (
   user_name text not null,
   leave_date date not null,
   leave_type text not null check (leave_type in ('full', 'half_am', 'half_pm')),
+  leave_category text not null default 'paid'
+    check (leave_category in ('paid', 'sick', 'special', 'absence', 'compensatory')),
   days numeric(3,1) not null default 1,
   reason text not null,
   status text not null default 'pending'
@@ -97,6 +99,26 @@ create table if not exists leave_requests (
   updated_at timestamptz not null default now()
 );
 create index if not exists leave_requests_user_date on leave_requests (user_name, leave_date);
+
+-- 祝日・会社休日
+create table if not exists holidays (
+  holiday_date date primary key,
+  name text not null,
+  kind text not null check (kind in ('national', 'company')),
+  created_at timestamptz not null default now()
+);
+
+-- 監査ログ
+create table if not exists audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_name text not null,
+  action text not null,
+  entity_type text not null,
+  entity_id text,
+  detail jsonb,
+  created_at timestamptz not null default now()
+);
+create index if not exists audit_logs_created_at on audit_logs (created_at desc);
 
 -- 勤怠修正申請
 create table if not exists correction_requests (

@@ -9,7 +9,6 @@ async function getWebhookUrl(): Promise<string | null> {
       );
       return rows[0]?.value || null;
     }
-    // shouldUseSupabase() に依存せず常に試みる（getRuleValue と同じ方針）
     const { data, error } = await createSupabaseServerClient()
       .from("system_rules")
       .select("value")
@@ -28,38 +27,28 @@ async function getWebhookUrl(): Promise<string | null> {
 }
 
 const eventEmoji: Record<string, string> = {
-  clockin:        "🟢",
-  clockout:       "🔴",
+  clockin: "🟢",
+  clockout: "🔴",
   overtime_start: "⏰",
-  break_start:    "☕",
-  break_end:      "🔙",
-  outing_start:   "🚶",
-  outing_return:  "🏃",
+  break_start: "☕",
+  break_end: "🔙",
+  outing_start: "🚶",
+  outing_return: "🏃",
 };
 
 const eventLabel: Record<string, string> = {
-  clockin:        "出勤",
-  clockout:       "退勤",
+  clockin: "出勤",
+  clockout: "退勤",
   overtime_start: "残業開始",
-  break_start:    "休憩開始",
-  break_end:      "休憩終了",
-  outing_start:   "外出",
-  outing_return:  "外出戻り",
+  break_start: "休憩開始",
+  break_end: "休憩終了",
+  outing_start: "外出",
+  outing_return: "外出戻り",
 };
 
-export async function notifyDiscord(
-  userName: string,
-  eventType: string,
-  time: string,
-  workDate: string,
-): Promise<void> {
+export async function sendDiscordMessage(content: string): Promise<boolean> {
   const url = await getWebhookUrl();
-  if (!url) return;
-
-  const emoji = eventEmoji[eventType] ?? "📋";
-  const label = eventLabel[eventType] ?? eventType;
-  const content = `${emoji} **${userName}** が ${label} しました　\`${time}\`　（${workDate}）`;
-
+  if (!url) return false;
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -68,8 +57,23 @@ export async function notifyDiscord(
     });
     if (!res.ok) {
       console.error(`[Discord] Webhook送信失敗: HTTP ${res.status} - ${await res.text()}`);
+      return false;
     }
+    return true;
   } catch (e) {
     console.error("[Discord] Webhook送信例外:", e);
+    return false;
   }
+}
+
+export async function notifyDiscord(
+  userName: string,
+  eventType: string,
+  time: string,
+  workDate: string,
+): Promise<void> {
+  const emoji = eventEmoji[eventType] ?? "📋";
+  const label = eventLabel[eventType] ?? eventType;
+  const content = `${emoji} **${userName}** が ${label} しました　\`${time}\`　（${workDate}）`;
+  await sendDiscordMessage(content);
 }

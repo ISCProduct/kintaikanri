@@ -3,6 +3,7 @@ import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient } from "@/server/supabase-server";
 import { upsertAttendanceRecord } from "@/server/attendance-service";
 import { cacheLife, cacheTag } from "next/cache";
+import { writeAuditLog } from "@/server/audit-service";
 
 const PG_SELECT = `
   select id, user_name, target_date::text, before_start::text, before_end::text,
@@ -110,6 +111,16 @@ export async function approveCorrectionRequest(
       workDate: req.target_date,
       startTime: req.after_start,
       endTime: req.after_end ?? undefined,
+    });
+  }
+
+  if (req) {
+    await writeAuditLog({
+      actorName: approverName,
+      action: status === "approved" ? "correction.approve" : "correction.reject",
+      entityType: "correction_request",
+      entityId: id,
+      detail: { user_name: req.user_name, target_date: req.target_date },
     });
   }
 

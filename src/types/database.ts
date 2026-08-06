@@ -70,6 +70,7 @@ export type Database = {
           user_name: string;
           leave_date: string;
           leave_type: "full" | "half_am" | "half_pm";
+          leave_category: "paid" | "sick" | "special" | "absence" | "compensatory";
           days: number;
           reason: string;
           status: "pending" | "approved" | "rejected";
@@ -83,6 +84,7 @@ export type Database = {
           user_name: string;
           leave_date: string;
           leave_type: "full" | "half_am" | "half_pm";
+          leave_category?: "paid" | "sick" | "special" | "absence" | "compensatory";
           days?: number;
           reason: string;
           status?: "pending" | "approved" | "rejected";
@@ -96,6 +98,7 @@ export type Database = {
           user_name?: string;
           leave_date?: string;
           leave_type?: "full" | "half_am" | "half_pm";
+          leave_category?: "paid" | "sick" | "special" | "absence" | "compensatory";
           days?: number;
           reason?: string;
           status?: "pending" | "approved" | "rejected";
@@ -103,6 +106,57 @@ export type Database = {
           approver_comment?: string | null;
           created_at?: string;
           updated_at?: string;
+        };
+        Relationships: [];
+      };
+      holidays: {
+        Row: {
+          holiday_date: string;
+          name: string;
+          kind: "national" | "company";
+          created_at: string;
+        };
+        Insert: {
+          holiday_date: string;
+          name: string;
+          kind: "national" | "company";
+          created_at?: string;
+        };
+        Update: {
+          holiday_date?: string;
+          name?: string;
+          kind?: "national" | "company";
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      audit_logs: {
+        Row: {
+          id: string;
+          actor_name: string;
+          action: string;
+          entity_type: string;
+          entity_id: string | null;
+          detail: Record<string, unknown> | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          actor_name: string;
+          action: string;
+          entity_type: string;
+          entity_id?: string | null;
+          detail?: Record<string, unknown> | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          actor_name?: string;
+          action?: string;
+          entity_type?: string;
+          entity_id?: string | null;
+          detail?: Record<string, unknown> | null;
+          created_at?: string;
         };
         Relationships: [];
       };

@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/missing-clockouts",
+      "schedule": "0 10 * * *"
+    }
+  ]
+}
