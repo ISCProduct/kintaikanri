@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
 import type { SystemRule } from "@/types/rules";
+import type { Holiday } from "@/types/holiday";
 import { detectLateEarly, type StandardWorkTimes } from "@/lib/late-early";
 
 const statusColors: Record<AttendanceStatus, string> = {
@@ -48,6 +49,7 @@ export function AttendanceCalendar({ userName }: Props) {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [standardTimes, setStandardTimes] = useState<StandardWorkTimes>({ start: "09:00", end: "18:00" });
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
   const fetchGen = useRef(0);
 
   const month = getMonthStr(monthDate);
@@ -66,6 +68,13 @@ export function AttendanceCalendar({ userName }: Props) {
       })
       .catch(() => undefined);
   }, []);
+
+  useEffect(() => {
+    void fetch(`/api/holidays?month=${month}`)
+      .then((r) => r.json())
+      .then((d: { holidays?: Holiday[] }) => setHolidays(d.holidays ?? []))
+      .catch(() => setHolidays([]));
+  }, [month]);
 
   useEffect(() => {
     if (!userName) {
@@ -90,6 +99,7 @@ export function AttendanceCalendar({ userName }: Props) {
   }, [month, userName]);
 
   const recordMap = Object.fromEntries(records.map((r) => [r.work_date, r]));
+  const holidayMap = Object.fromEntries(holidays.map((h) => [h.holiday_date, h]));
 
   // カレンダーの日付配列を生成
   const year = monthDate.getFullYear();
@@ -134,6 +144,7 @@ export function AttendanceCalendar({ userName }: Props) {
               if (!day) return <div key={`empty-${idx}`} className="cal-cell cal-cell-empty" />;
               const dateStr = `${year}-${String(mon + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
               const rec = recordMap[dateStr];
+              const holiday = holidayMap[dateStr];
               const isToday = dateStr === today;
               const dow = (firstDay + day - 1) % 7;
               const isSun = dow === 0;
@@ -149,13 +160,20 @@ export function AttendanceCalendar({ userName }: Props) {
               return (
                 <div
                   key={dateStr}
-                  className={`cal-cell ${isToday ? "cal-today" : ""} ${isSun ? "cal-sun" : ""} ${isSat ? "cal-sat" : ""}`}
-                  style={rec ? { backgroundColor: statusColors[rec.status] } : undefined}
+                  className={`cal-cell ${isToday ? "cal-today" : ""} ${isSun ? "cal-sun" : ""} ${isSat ? "cal-sat" : ""} ${holiday ? "cal-holiday" : ""}`}
+                  style={rec ? { backgroundColor: statusColors[rec.status] } : holiday ? { backgroundColor: "#fce7f3" } : undefined}
                 >
                   <span className="cal-day-num">{day}</span>
+                  {holiday && !rec && (
+                    <div className="cal-record" style={{ color: "#9d174d" }}>
+                      <span className="cal-status-badge">{holiday.kind === "national" ? "祝日" : "会社休"}</span>
+                      <span className="cal-time">{holiday.name}</span>
+                    </div>
+                  )}
                   {rec && (
                     <div className="cal-record" style={{ color: statusTextColors[rec.status] }}>
                       <span className="cal-status-badge">{statusLabels[rec.status]}</span>
+                      {holiday && <span className="cal-time" style={{ color: "#9d174d" }}>{holiday.name}</span>}
                       <span className="cal-time">{rec.start_time.slice(0, 5)}</span>
                       {rec.end_time && <span className="cal-time">〜{rec.end_time.slice(0, 5)}</span>}
                       {(flags.isLate || flags.isEarlyLeave) && (
@@ -180,6 +198,7 @@ export function AttendanceCalendar({ userName }: Props) {
                 {statusLabels[s]}
               </span>
             ))}
+            <span className="legend-item" style={{ background: "#fce7f3", color: "#9d174d" }}>祝日/会社休</span>
             <span className="legend-item"><span className="flag-late">遅</span> 遅刻</span>
             <span className="legend-item"><span className="flag-early">早</span> 早退</span>
           </div>

@@ -1,13 +1,21 @@
-import type { LeaveRequest, LeaveStatus, LeaveType } from "@/types/leave";
-import { leaveTypeToDays } from "@/types/leave";
+import type { LeaveCategory, LeaveRequest, LeaveStatus, LeaveType } from "@/types/leave";
+import {
+  consumesPaidLeave,
+  leaveCategoryLabels,
+  leaveTypeLabels,
+  leaveTypeToDays,
+} from "@/types/leave";
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase-server";
 import { upsertAttendanceRecord } from "@/server/attendance-service";
-import { recordVacationUsed } from "@/server/rules-service";
+import { getUserPaidLeaveBalance, recordVacationUsed } from "@/server/rules-service";
 import { isMonthClosed } from "@/server/closing-service";
+import { writeAuditLog } from "@/server/audit-service";
 
 const PG_SELECT = `
-  select id, user_name, leave_date::text, leave_type, days::float8, reason, status,
+  select id, user_name, leave_date::text, leave_type,
+         coalesce(leave_category, 'paid') as leave_category,
+         days::float8, reason, status,
          approver_name, approver_comment, created_at::text, updated_at::text
   from leave_requests
 `;
@@ -16,6 +24,7 @@ export type LeaveCreateInput = {
   userName: string;
   leaveDate: string;
   leaveType: LeaveType;
+  leaveCategory: LeaveCategory;
   reason: string;
 };
 
@@ -29,7 +38,15 @@ type ServiceError = { message: string };
 type Result<T> = { data: T; error: null } | { data: null; error: ServiceError };
 
 function notFound(): Result<never> {
-  return { data: null, error: { message: "有給申請が見つかりません。" } };
+  return { data: null, error: { message: "休暇申請が見つかりません。" } };
+}
+
+function normalizeLeave(row: LeaveRequest): LeaveRequest {
+  return {
+    ...row,
+    leave_category: row.leave_category ?? "paid",
+    days: Number(row.days),
+  };
 }
 
 export async function listLeaveRequests(
@@ -41,7 +58,7 @@ export async function listLeaveRequests(
       `${PG_SELECT} ${where} order by leave_date desc, created_at desc`,
       userName ? [userName] : [],
     );
-    return { data: rows, error: null };
+    return { data: rows.map(normalizeLeave), error: null };
   }
 
   if (!shouldUseSupabase()) return { data: [], error: null };
@@ -53,14 +70,14 @@ export async function listLeaveRequests(
   if (userName) query = query.eq("user_name", userName);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return { data: (data ?? []) as LeaveRequest[], error: null };
+  return { data: ((data ?? []) as LeaveRequest[]).map(normalizeLeave), error: null };
 }
 
 export async function getLeaveRequestById(id: string): Promise<Result<LeaveRequest>> {
   if (hasDatabaseUrl()) {
     const { rows } = await getPgPool().query<LeaveRequest>(`${PG_SELECT} where id = $1`, [id]);
     if (!rows[0]) return notFound();
-    return { data: rows[0], error: null };
+    return { data: normalizeLeave(rows[0]), error: null };
   }
   if (!shouldUseSupabase()) return notFound();
   const { data, error } = await createSupabaseServerClient()
@@ -69,7 +86,18 @@ export async function getLeaveRequestById(id: string): Promise<Result<LeaveReque
     .eq("id", id)
     .single();
   if (error || !data) return notFound();
-  return { data: data as LeaveRequest, error: null };
+  return { data: normalizeLeave(data as LeaveRequest), error: null };
+}
+
+async function assertPaidLeaveBalance(userName: string, days: number): Promise<ServiceError | null> {
+  const balance = await getUserPaidLeaveBalance(userName);
+  const remaining = balance?.remaining ?? 0;
+  if (remaining < days) {
+    return {
+      message: `有給残日数が不足しています（残 ${remaining} 日 / 申請 ${days} 日）。`,
+    };
+  }
+  return null;
 }
 
 export async function createLeaveRequest(
@@ -79,17 +107,40 @@ export async function createLeaveRequest(
   if (await isMonthClosed(month)) {
     return { data: null, error: { message: `${month} は締め済みのため申請できません。` } };
   }
-  const days = leaveTypeToDays(input.leaveType);
+
+  // 有給以外は全日のみ
+  const leaveType: LeaveType =
+    input.leaveCategory === "paid" ? input.leaveType : "full";
+  const days = leaveTypeToDays(leaveType);
+
+  if (consumesPaidLeave(input.leaveCategory)) {
+    const balanceError = await assertPaidLeaveBalance(input.userName, days);
+    if (balanceError) return { data: null, error: balanceError };
+  }
 
   if (hasDatabaseUrl()) {
     const { rows } = await getPgPool().query<LeaveRequest>(
-      `insert into leave_requests (user_name, leave_date, leave_type, days, reason)
-       values ($1, $2, $3, $4, $5)
-       returning id, user_name, leave_date::text, leave_type, days::float8, reason, status,
+      `insert into leave_requests (user_name, leave_date, leave_type, leave_category, days, reason)
+       values ($1, $2, $3, $4, $5, $6)
+       returning id, user_name, leave_date::text, leave_type,
+                 coalesce(leave_category, 'paid') as leave_category,
+                 days::float8, reason, status,
                  approver_name, approver_comment, created_at::text, updated_at::text`,
-      [input.userName, input.leaveDate, input.leaveType, days, input.reason],
+      [input.userName, input.leaveDate, leaveType, input.leaveCategory, days, input.reason],
     );
-    return { data: rows[0], error: null };
+    const created = normalizeLeave(rows[0]);
+    await writeAuditLog({
+      actorName: input.userName,
+      action: "leave.create",
+      entityType: "leave_request",
+      entityId: created.id,
+      detail: {
+        leave_date: created.leave_date,
+        leave_category: created.leave_category,
+        leave_type: created.leave_type,
+      },
+    });
+    return { data: created, error: null };
   }
 
   if (!shouldUseSupabase()) {
@@ -101,7 +152,8 @@ export async function createLeaveRequest(
     .insert({
       user_name: input.userName,
       leave_date: input.leaveDate,
-      leave_type: input.leaveType,
+      leave_type: leaveType,
+      leave_category: input.leaveCategory,
       days,
       reason: input.reason,
     })
@@ -110,7 +162,19 @@ export async function createLeaveRequest(
   if (error || !data) {
     return { data: null, error: { message: error?.message ?? "申請の作成に失敗しました。" } };
   }
-  return { data: data as LeaveRequest, error: null };
+  const created = normalizeLeave(data as LeaveRequest);
+  await writeAuditLog({
+    actorName: input.userName,
+    action: "leave.create",
+    entityType: "leave_request",
+    entityId: created.id,
+    detail: {
+      leave_date: created.leave_date,
+      leave_category: created.leave_category,
+      leave_type: created.leave_type,
+    },
+  });
+  return { data: created, error: null };
 }
 
 export async function approveLeaveRequest(
@@ -123,20 +187,35 @@ export async function approveLeaveRequest(
     return { data: null, error: { message: "処理済みの申請です。" } };
   }
 
+  if (input.status === "approved" && consumesPaidLeave(current.data.leave_category)) {
+    const balanceError = await assertPaidLeaveBalance(current.data.user_name, current.data.days);
+    if (balanceError) return { data: null, error: balanceError };
+  }
+
   if (hasDatabaseUrl()) {
     const { rows } = await getPgPool().query<LeaveRequest>(
       `update leave_requests
        set status = $1, approver_name = $2, approver_comment = $3, updated_at = now()
        where id = $4
-       returning id, user_name, leave_date::text, leave_type, days::float8, reason, status,
+       returning id, user_name, leave_date::text, leave_type,
+                 coalesce(leave_category, 'paid') as leave_category,
+                 days::float8, reason, status,
                  approver_name, approver_comment, created_at::text, updated_at::text`,
       [input.status, input.approverName, input.approverComment ?? null, id],
     );
     if (!rows[0]) return notFound();
+    const updated = normalizeLeave(rows[0]);
     if (input.status === "approved") {
-      await applyApprovedLeave(rows[0]);
+      await applyApprovedLeave(updated);
     }
-    return { data: rows[0], error: null };
+    await writeAuditLog({
+      actorName: input.approverName,
+      action: input.status === "approved" ? "leave.approve" : "leave.reject",
+      entityType: "leave_request",
+      entityId: id,
+      detail: { user_name: updated.user_name, leave_date: updated.leave_date },
+    });
+    return { data: updated, error: null };
   }
 
   if (!shouldUseSupabase()) {
@@ -155,29 +234,41 @@ export async function approveLeaveRequest(
     .select("*")
     .single();
   if (error || !data) return notFound();
-  const request = data as LeaveRequest;
+  const request = normalizeLeave(data as LeaveRequest);
   if (input.status === "approved") {
     await applyApprovedLeave(request);
   }
+  await writeAuditLog({
+    actorName: input.approverName,
+    action: input.status === "approved" ? "leave.approve" : "leave.reject",
+    entityType: "leave_request",
+    entityId: id,
+    detail: { user_name: request.user_name, leave_date: request.leave_date },
+  });
   return { data: request, error: null };
 }
 
 async function applyApprovedLeave(request: LeaveRequest): Promise<void> {
-  const note =
-    request.leave_type === "full"
-      ? `有給（全休）: ${request.reason}`
-      : request.leave_type === "half_am"
-        ? `有給（午前半休）: ${request.reason}`
-        : `有給（午後半休）: ${request.reason}`;
+  const categoryLabel = leaveCategoryLabels[request.leave_category];
+  const typeLabel = leaveTypeLabels[request.leave_type];
+  const note = `${categoryLabel}（${typeLabel}）: ${request.reason}`;
 
-  // 全日は休暇ステータス。半休は出社扱いで備考に残す（開始/終了は仮の所定）
+  const attendanceStatus =
+    request.leave_category === "absence"
+      ? "holiday"
+      : request.leave_type === "full"
+        ? request.leave_category === "compensatory"
+          ? "holiday"
+          : "vacation"
+        : "present";
+
   if (request.leave_type === "full") {
     await upsertAttendanceRecord({
       userName: request.user_name,
       workDate: request.leave_date,
       startTime: "00:00",
       endTime: "00:00",
-      status: "vacation",
+      status: attendanceStatus,
       note,
     });
   } else {
@@ -190,7 +281,10 @@ async function applyApprovedLeave(request: LeaveRequest): Promise<void> {
       note,
     });
   }
-  await recordVacationUsed(request.user_name, request.leave_date, request.days);
+
+  if (consumesPaidLeave(request.leave_category)) {
+    await recordVacationUsed(request.user_name, request.leave_date, request.days);
+  }
 }
 
 export async function deleteLeaveRequest(id: string): Promise<Result<true>> {
@@ -202,6 +296,12 @@ export async function deleteLeaveRequest(id: string): Promise<Result<true>> {
 
   if (hasDatabaseUrl()) {
     await getPgPool().query("delete from leave_requests where id = $1", [id]);
+    await writeAuditLog({
+      actorName: current.data.user_name,
+      action: "leave.cancel",
+      entityType: "leave_request",
+      entityId: id,
+    });
     return { data: true, error: null };
   }
   if (!shouldUseSupabase()) {
@@ -209,5 +309,11 @@ export async function deleteLeaveRequest(id: string): Promise<Result<true>> {
   }
   const { error } = await createSupabaseServerClient().from("leave_requests").delete().eq("id", id);
   if (error) return { data: null, error: { message: error.message } };
+  await writeAuditLog({
+    actorName: current.data.user_name,
+    action: "leave.cancel",
+    entityType: "leave_request",
+    entityId: id,
+  });
   return { data: true, error: null };
 }

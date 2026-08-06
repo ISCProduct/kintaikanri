@@ -3,7 +3,16 @@ import {
   listLeaveRequests,
   createLeaveRequest,
 } from "@/server/leave-service";
-import type { LeaveType } from "@/types/leave";
+import type { LeaveCategory, LeaveType } from "@/types/leave";
+
+const LEAVE_TYPES: LeaveType[] = ["full", "half_am", "half_pm"];
+const LEAVE_CATEGORIES: LeaveCategory[] = [
+  "paid",
+  "sick",
+  "special",
+  "absence",
+  "compensatory",
+];
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -23,6 +32,7 @@ export async function POST(request: Request) {
       userName?: string;
       leaveDate?: string;
       leaveType?: LeaveType;
+      leaveCategory?: LeaveCategory;
       reason?: string;
     };
     if (!body.userName || !body.leaveDate || !body.leaveType || !body.reason?.trim()) {
@@ -31,13 +41,18 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    if (!["full", "half_am", "half_pm"].includes(body.leaveType)) {
+    if (!LEAVE_TYPES.includes(body.leaveType)) {
       return NextResponse.json({ message: "leaveType が不正です。" }, { status: 400 });
+    }
+    const leaveCategory = body.leaveCategory ?? "paid";
+    if (!LEAVE_CATEGORIES.includes(leaveCategory)) {
+      return NextResponse.json({ message: "leaveCategory が不正です。" }, { status: 400 });
     }
     const { data, error } = await createLeaveRequest({
       userName: body.userName.trim(),
       leaveDate: body.leaveDate,
       leaveType: body.leaveType,
+      leaveCategory,
       reason: body.reason.trim(),
     });
     if (error) return NextResponse.json({ message: error.message }, { status: 400 });

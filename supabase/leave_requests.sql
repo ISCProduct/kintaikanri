@@ -4,6 +4,8 @@ create table if not exists public.leave_requests (
   user_name text not null,
   leave_date date not null,
   leave_type text not null check (leave_type in ('full', 'half_am', 'half_pm')),
+  leave_category text not null default 'paid'
+    check (leave_category in ('paid', 'sick', 'special', 'absence', 'compensatory')),
   days numeric(3,1) not null default 1,
   reason text not null,
   status text not null default 'pending'
@@ -25,6 +27,9 @@ create policy "Allow all for leave_requests"
   to anon, authenticated
   using (true)
   with check (true);
+
+alter table public.leave_requests
+  add column if not exists leave_category text not null default 'paid';
 
 insert into public.system_rules (key, value, label) values
   ('standard_start_time', '09:00', '所定出勤時刻'),

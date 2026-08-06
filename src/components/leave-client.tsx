@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, type FormEvent } from "react";
-import type { LeaveRequest, LeaveStatus, LeaveType } from "@/types/leave";
-import { leaveTypeLabels } from "@/types/leave";
+import type { LeaveCategory, LeaveRequest, LeaveStatus, LeaveType } from "@/types/leave";
+import { leaveCategoryLabels, leaveTypeLabels } from "@/types/leave";
 
 const USER_NAME_KEY = "kintai_user_name";
 
@@ -32,6 +32,7 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
   const [userName, setUserName] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [leaveDate, setLeaveDate] = useState(getLocalDateString());
+  const [leaveCategory, setLeaveCategory] = useState<LeaveCategory>("paid");
   const [leaveType, setLeaveType] = useState<LeaveType>("full");
   const [reason, setReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -45,6 +46,12 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
       setIsAuthenticated(sessionStorage.getItem(`kintai_auth_${saved}`) === "1");
     }
   }, []);
+
+  useEffect(() => {
+    if (leaveCategory !== "paid" && leaveType !== "full") {
+      setLeaveType("full");
+    }
+  }, [leaveCategory, leaveType]);
 
   const showMessage = (text: string, type: "success" | "error") => {
     setMessage(text);
@@ -67,7 +74,8 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
       body: JSON.stringify({
         userName: userName.trim(),
         leaveDate,
-        leaveType,
+        leaveType: leaveCategory === "paid" ? leaveType : "full",
+        leaveCategory,
         reason,
       }),
     });
@@ -83,7 +91,7 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
     if (data.request) {
       setRequests((prev) => [data.request!, ...prev]);
     }
-    showMessage("有給申請を提出しました。", "success");
+    showMessage("休暇申請を提出しました。", "success");
     setReason("");
     setIsSubmitting(false);
   };
@@ -102,8 +110,8 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
       <>
         <section className="dashboard-header">
           <div>
-            <h1>有給申請</h1>
-            <p className="description">有給休暇の申請を行います。</p>
+            <h1>休暇申請</h1>
+            <p className="description">有給・病休・特別休暇などの申請を行います。</p>
           </div>
         </section>
         <section className="card" style={{ maxWidth: 420, margin: "0 auto", textAlign: "center" }}>
@@ -121,8 +129,10 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
     <>
       <section className="dashboard-header">
         <div>
-          <h1>有給申請</h1>
-          <p className="description">有給休暇の申請を行います。承認後に勤怠と残日数へ反映されます。</p>
+          <h1>休暇申請</h1>
+          <p className="description">
+            有給・病休・特別休暇などを申請します。有給は残日数を消費し、不足時は申請できません。
+          </p>
         </div>
         {userName && <span className="user-badge">{userName}</span>}
       </section>
@@ -140,26 +150,42 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
             />
           </label>
           <label className="field">
-            区分
+            休暇種別
             <select
-              value={leaveType}
-              onChange={(e) => setLeaveType(e.target.value as LeaveType)}
+              value={leaveCategory}
+              onChange={(e) => setLeaveCategory(e.target.value as LeaveCategory)}
               required
             >
-              {(Object.keys(leaveTypeLabels) as LeaveType[]).map((t) => (
-                <option key={t} value={t}>
-                  {leaveTypeLabels[t]}（{t === "full" ? "1日" : "0.5日"}）
+              {(Object.keys(leaveCategoryLabels) as LeaveCategory[]).map((c) => (
+                <option key={c} value={c}>
+                  {leaveCategoryLabels[c]}
                 </option>
               ))}
             </select>
           </label>
+          {leaveCategory === "paid" && (
+            <label className="field">
+              時間区分
+              <select
+                value={leaveType}
+                onChange={(e) => setLeaveType(e.target.value as LeaveType)}
+                required
+              >
+                {(Object.keys(leaveTypeLabels) as LeaveType[]).map((t) => (
+                  <option key={t} value={t}>
+                    {leaveTypeLabels[t]}（{t === "full" ? "1日" : "0.5日"}）
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="field field-full">
             申請理由
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={3}
-              placeholder="例: 私用のため"
+              placeholder="例: 私用のため / 通院のため"
               required
             />
           </label>
@@ -184,6 +210,7 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
               <thead>
                 <tr>
                   <th>取得日</th>
+                  <th>種別</th>
                   <th>区分</th>
                   <th>日数</th>
                   <th>理由</th>
@@ -197,6 +224,7 @@ export function LeaveClient({ initialRequests }: LeaveClientProps) {
                 {myRequests.map((r) => (
                   <tr key={r.id}>
                     <td>{r.leave_date}</td>
+                    <td>{leaveCategoryLabels[r.leave_category ?? "paid"]}</td>
                     <td>{leaveTypeLabels[r.leave_type]}</td>
                     <td>{r.days}日</td>
                     <td className="td-reason">{r.reason}</td>

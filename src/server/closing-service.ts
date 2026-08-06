@@ -1,5 +1,6 @@
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase-server";
+import { writeAuditLog } from "@/server/audit-service";
 
 export type MonthlyClosing = {
   month: string;
@@ -48,24 +49,32 @@ export async function closeMonth(month: string, closedBy: string): Promise<void>
       "insert into monthly_closings (month, closed_by) values ($1, $2) on conflict (month) do nothing",
       [month, closedBy],
     );
-    return;
-  }
-  if (shouldUseSupabase()) {
+  } else if (shouldUseSupabase()) {
     await createSupabaseServerClient()
       .from("monthly_closings")
       .upsert({ month, closed_by: closedBy });
   }
+  await writeAuditLog({
+    actorName: closedBy,
+    action: "closing.close",
+    entityType: "monthly_closing",
+    entityId: month,
+  });
 }
 
-export async function reopenMonth(month: string): Promise<void> {
+export async function reopenMonth(month: string, actorName = "admin"): Promise<void> {
   if (hasDatabaseUrl()) {
     await getPgPool().query("delete from monthly_closings where month = $1", [month]);
-    return;
-  }
-  if (shouldUseSupabase()) {
+  } else if (shouldUseSupabase()) {
     await createSupabaseServerClient()
       .from("monthly_closings")
       .delete()
       .eq("month", month);
   }
+  await writeAuditLog({
+    actorName,
+    action: "closing.reopen",
+    entityType: "monthly_closing",
+    entityId: month,
+  });
 }

@@ -2,6 +2,7 @@ import type { OvertimeRequest, OvertimeStatus } from "@/types/overtime";
 import { getPgPool, hasDatabaseUrl } from "@/server/pg-client";
 import { createSupabaseServerClient, shouldUseSupabase } from "@/server/supabase-server";
 import { cacheLife, cacheTag } from "next/cache";
+import { writeAuditLog } from "@/server/audit-service";
 
 const PG_SELECT = `
   select id, user_name, request_date::text, planned_start::text, planned_end::text,
@@ -131,6 +132,13 @@ export async function approveOvertimeRequest(
       [input.status, input.approverName, input.approverComment ?? null, id],
     );
     if (!rows[0]) return notFound();
+    await writeAuditLog({
+      actorName: input.approverName,
+      action: input.status === "approved" ? "overtime.approve" : "overtime.reject",
+      entityType: "overtime_request",
+      entityId: id,
+      detail: { user_name: rows[0].user_name, request_date: rows[0].request_date },
+    });
     return { data: rows[0], error: null };
   }
 
@@ -147,6 +155,16 @@ export async function approveOvertimeRequest(
     .select("*")
     .single();
   if (error || !data) return notFound();
+  await writeAuditLog({
+    actorName: input.approverName,
+    action: input.status === "approved" ? "overtime.approve" : "overtime.reject",
+    entityType: "overtime_request",
+    entityId: id,
+    detail: {
+      user_name: (data as OvertimeRequest).user_name,
+      request_date: (data as OvertimeRequest).request_date,
+    },
+  });
   return { data: data as OvertimeRequest, error: null };
 }
 
