@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const navItems = [
   { href: "/", label: "勤怠打刻" },
   { href: "/overtime", label: "残業申請" },
+  { href: "/leave", label: "有給申請" },
   { href: "/correction", label: "修正申請" },
   { href: "/admin", label: "管理" },
   { href: "/admin/settings", label: "設定" },

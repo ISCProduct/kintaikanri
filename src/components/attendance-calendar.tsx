@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { AttendanceRecord, AttendanceStatus } from "@/types/attendance";
+import type { SystemRule } from "@/types/rules";
+import { detectLateEarly, type StandardWorkTimes } from "@/lib/late-early";
 
 const statusColors: Record<AttendanceStatus, string> = {
   present: "#dbeafe",
@@ -45,9 +47,25 @@ export function AttendanceCalendar({ userName }: Props) {
   });
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [standardTimes, setStandardTimes] = useState<StandardWorkTimes>({ start: "09:00", end: "18:00" });
   const fetchGen = useRef(0);
 
   const month = getMonthStr(monthDate);
+
+  useEffect(() => {
+    void fetch("/api/rules")
+      .then((r) => r.json())
+      .then((d: { rules?: SystemRule[] }) => {
+        const rules = d.rules ?? [];
+        const start = rules.find((r) => r.key === "standard_start_time")?.value;
+        const end = rules.find((r) => r.key === "standard_end_time")?.value;
+        setStandardTimes({
+          start: (start ?? "09:00").slice(0, 5),
+          end: (end ?? "18:00").slice(0, 5),
+        });
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!userName) {
@@ -120,6 +138,14 @@ export function AttendanceCalendar({ userName }: Props) {
               const dow = (firstDay + day - 1) % 7;
               const isSun = dow === 0;
               const isSat = dow === 6;
+              const flags = rec
+                ? detectLateEarly(rec.start_time, rec.end_time, standardTimes, {
+                    skip:
+                      rec.status === "vacation" ||
+                      rec.status === "holiday" ||
+                      (rec.note?.includes("有給") ?? false),
+                  })
+                : { isLate: false, isEarlyLeave: false };
               return (
                 <div
                   key={dateStr}
@@ -132,6 +158,12 @@ export function AttendanceCalendar({ userName }: Props) {
                       <span className="cal-status-badge">{statusLabels[rec.status]}</span>
                       <span className="cal-time">{rec.start_time.slice(0, 5)}</span>
                       {rec.end_time && <span className="cal-time">〜{rec.end_time.slice(0, 5)}</span>}
+                      {(flags.isLate || flags.isEarlyLeave) && (
+                        <span className="cal-flags">
+                          {flags.isLate && <span className="flag-late">遅</span>}
+                          {flags.isEarlyLeave && <span className="flag-early">早</span>}
+                        </span>
+                      )}
                       {rec.overtime_start && (
                         <span className="cal-time cal-overtime">残業 {rec.overtime_start.slice(0, 5)}〜</span>
                       )}
@@ -148,6 +180,8 @@ export function AttendanceCalendar({ userName }: Props) {
                 {statusLabels[s]}
               </span>
             ))}
+            <span className="legend-item"><span className="flag-late">遅</span> 遅刻</span>
+            <span className="legend-item"><span className="flag-early">早</span> 早退</span>
           </div>
         </>
       )}

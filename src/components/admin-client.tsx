@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import type { OvertimeRequest, OvertimeStatus } from "@/types/overtime";
 import type { CorrectionRequest, CorrectionStatus } from "@/types/correction";
+import type { LeaveRequest, LeaveStatus } from "@/types/leave";
+import { leaveTypeLabels } from "@/types/leave";
 import type { AttendanceRecord } from "@/types/attendance";
 import type { MonthlyClosing } from "@/server/closing-service";
 
@@ -14,7 +16,7 @@ const statusLabels: Record<OvertimeStatus, string> = {
   rejected: "却下",
 };
 
-const statusClass: Record<OvertimeStatus | CorrectionStatus, string> = {
+const statusClass: Record<OvertimeStatus | CorrectionStatus | LeaveStatus, string> = {
   pending: "chip-pending",
   approved: "chip-approved",
   rejected: "chip-rejected",
@@ -23,6 +25,7 @@ const statusClass: Record<OvertimeStatus | CorrectionStatus, string> = {
 type AdminClientProps = {
   initialRequests: OvertimeRequest[];
   initialCorrectionRequests: CorrectionRequest[];
+  initialLeaveRequests: LeaveRequest[];
 };
 
 function getThisMonth() {
@@ -30,13 +33,19 @@ function getThisMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export function AdminClient({ initialRequests, initialCorrectionRequests }: AdminClientProps) {
+export function AdminClient({
+  initialRequests,
+  initialCorrectionRequests,
+  initialLeaveRequests,
+}: AdminClientProps) {
   const [requests, setRequests] = useState<OvertimeRequest[]>(initialRequests);
   const [corrections, setCorrections] = useState<CorrectionRequest[]>(initialCorrectionRequests);
+  const [leaves, setLeaves] = useState<LeaveRequest[]>(initialLeaveRequests);
   const [adminName, setAdminName] = useState("");
-  const [activeTab, setActiveTab] = useState<"overtime" | "correction">("overtime");
+  const [activeTab, setActiveTab] = useState<"overtime" | "correction" | "leave">("overtime");
   const [filterStatus, setFilterStatus] = useState<OvertimeStatus | "all">("pending");
   const [corrFilterStatus, setCorrFilterStatus] = useState<CorrectionStatus | "all">("pending");
+  const [leaveFilterStatus, setLeaveFilterStatus] = useState<LeaveStatus | "all">("pending");
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [commentMap, setCommentMap] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
@@ -90,14 +99,35 @@ export function AdminClient({ initialRequests, initialCorrectionRequests }: Admi
     setProcessingId(null);
   };
 
+  const handleLeaveAction = async (id: string, status: "approved" | "rejected") => {
+    if (!adminName.trim()) { setMessage("管理者名を入力してください。"); return; }
+    setProcessingId(id);
+    setMessage("");
+    const res = await fetch(`/api/leave/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, approverName: adminName.trim(), approverComment: commentMap[id] ?? "" }),
+    });
+    const data = (await res.json()) as { request?: LeaveRequest; message?: string };
+    if (!res.ok) { setMessage(data.message ?? "操作に失敗しました。"); }
+    else if (data.request) { setLeaves((prev) => prev.map((r) => (r.id === id ? data.request! : r))); }
+    setProcessingId(null);
+  };
+
   const reload = async () => {
-    const [r1, r2] = await Promise.all([fetch("/api/overtime"), fetch("/api/correction")]);
-    const [d1, d2] = await Promise.all([
+    const [r1, r2, r3] = await Promise.all([
+      fetch("/api/overtime"),
+      fetch("/api/correction"),
+      fetch("/api/leave"),
+    ]);
+    const [d1, d2, d3] = await Promise.all([
       r1.json() as Promise<{ requests?: OvertimeRequest[] }>,
       r2.json() as Promise<{ requests?: CorrectionRequest[] }>,
+      r3.json() as Promise<{ requests?: LeaveRequest[] }>,
     ]);
     if (d1.requests) setRequests(d1.requests);
     if (d2.requests) setCorrections(d2.requests);
+    if (d3.requests) setLeaves(d3.requests);
   };
 
   const handleClose = async () => {
@@ -133,6 +163,7 @@ export function AdminClient({ initialRequests, initialCorrectionRequests }: Admi
 
   const filteredOvertime = filterStatus === "all" ? requests : requests.filter((r) => r.status === filterStatus);
   const filteredCorrections = corrFilterStatus === "all" ? corrections : corrections.filter((r) => r.status === corrFilterStatus);
+  const filteredLeaves = leaveFilterStatus === "all" ? leaves : leaves.filter((r) => r.status === leaveFilterStatus);
 
   const handleExport = () => {
     const params = new URLSearchParams({ month: exportMonth });
@@ -187,6 +218,9 @@ export function AdminClient({ initialRequests, initialCorrectionRequests }: Admi
           <button type="button" className={activeTab === "overtime" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("overtime")}>
             残業申請 {requests.filter((r) => r.status === "pending").length > 0 && <span className="badge-warn">{requests.filter((r) => r.status === "pending").length}</span>}
           </button>
+          <button type="button" className={activeTab === "leave" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("leave")}>
+            有給申請 {leaves.filter((r) => r.status === "pending").length > 0 && <span className="badge-warn">{leaves.filter((r) => r.status === "pending").length}</span>}
+          </button>
           <button type="button" className={activeTab === "correction" ? "tab tab-active" : "tab"} onClick={() => setActiveTab("correction")}>
             修正申請 {corrections.filter((r) => r.status === "pending").length > 0 && <span className="badge-warn">{corrections.filter((r) => r.status === "pending").length}</span>}
           </button>
@@ -228,6 +262,54 @@ export function AdminClient({ initialRequests, initialCorrectionRequests }: Admi
                             <div className="action-buttons">
                               <button className="approve-button" disabled={processingId === r.id} onClick={() => void handleOvertimeAction(r.id, "approved")}>承認</button>
                               <button className="reject-button" disabled={processingId === r.id} onClick={() => void handleOvertimeAction(r.id, "rejected")}>却下</button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === "leave" && (
+          <>
+            <div className="filter-row">
+              {(["all", "pending", "approved", "rejected"] as const).map((s) => (
+                <button key={s} type="button" className={leaveFilterStatus === s ? "tab tab-active" : "tab"} onClick={() => setLeaveFilterStatus(s)}>
+                  {s === "all" ? "すべて" : statusLabels[s]}
+                </button>
+              ))}
+            </div>
+            {filteredLeaves.length === 0 ? (
+              <p className="description">該当する申請はありません。</p>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>申請者</th><th>取得日</th><th>区分</th><th>日数</th><th>理由</th><th>状態</th><th>コメント</th><th>操作</th></tr>
+                  </thead>
+                  <tbody>
+                    {filteredLeaves.map((r) => (
+                      <tr key={r.id}>
+                        <td>{r.user_name}</td><td>{r.leave_date}</td>
+                        <td>{leaveTypeLabels[r.leave_type]}</td><td>{r.days}日</td>
+                        <td className="td-reason">{r.reason}</td>
+                        <td><span className={`status-chip ${statusClass[r.status]}`}>{statusLabels[r.status]}</span></td>
+                        <td>
+                          {r.status === "pending" ? (
+                            <input type="text" className="comment-input" placeholder="コメント（任意）"
+                              value={commentMap[r.id] ?? ""}
+                              onChange={(e) => setCommentMap((prev) => ({ ...prev, [r.id]: e.target.value }))} />
+                          ) : (r.approver_comment ?? "-")}
+                        </td>
+                        <td>
+                          {r.status === "pending" && (
+                            <div className="action-buttons">
+                              <button className="approve-button" disabled={processingId === r.id} onClick={() => void handleLeaveAction(r.id, "approved")}>承認</button>
+                              <button className="reject-button" disabled={processingId === r.id} onClick={() => void handleLeaveAction(r.id, "rejected")}>却下</button>
                             </div>
                           )}
                         </td>
