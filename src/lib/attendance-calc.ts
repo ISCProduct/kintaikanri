@@ -90,6 +90,14 @@ function calcPairedMinutes(
   return total;
 }
 
+/** 残業申請の予定時間数（分）を計算。終了 &lt; 開始は翌日跨ぎとして扱う。 */
+export function calcOvertimeDuration(start: string, end: string): number {
+  const startMin = timeToMinutes(start.slice(0, 5));
+  let endMin = timeToMinutes(end.slice(0, 5));
+  if (endMin < startMin) endMin += DAY_MINUTES;
+  return endMin - startMin;
+}
+
 /**
  * 勤務・残業分を計算。
  * - 勤務 = (退勤−出勤) − 休憩・外出（翌日跨ぎ対応）

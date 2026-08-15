@@ -38,6 +38,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (plannedStart === plannedEnd) {
+      return NextResponse.json(
+        { message: "終了予定は開始予定と異なる時刻を指定してください。" },
+        { status: 400 },
+      );
+    }
+
     const { data } = await createOvertimeRequest({
       userName,
       requestDate,

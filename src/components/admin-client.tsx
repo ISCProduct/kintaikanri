@@ -10,6 +10,7 @@ import type { MonthlyClosing } from "@/server/closing-service";
 import type { AuditLog } from "@/server/audit-service";
 import type { Holiday, HolidayKind } from "@/types/holiday";
 import type { MonthlyOvertimeSummary } from "@/types/rules";
+import { calcOvertimeDuration, formatMinutes } from "@/lib/attendance-calc";
 
 const USER_NAME_KEY = "kintai_user_name";
 
@@ -330,13 +331,14 @@ export function AdminClient({
               <div className="table-wrap">
                 <table>
                   <thead>
-                    <tr><th>申請者</th><th>残業日</th><th>開始</th><th>終了</th><th>理由</th><th>状態</th><th>コメント</th><th>操作</th></tr>
+                    <tr><th>申請者</th><th>残業日</th><th>開始</th><th>終了</th><th>予定時間</th><th>理由</th><th>状態</th><th>コメント</th><th>操作</th></tr>
                   </thead>
                   <tbody>
                     {filteredOvertime.map((r) => (
                       <tr key={r.id}>
                         <td>{r.user_name}</td><td>{r.request_date}</td>
                         <td>{r.planned_start}</td><td>{r.planned_end}</td>
+                        <td>{formatMinutes(calcOvertimeDuration(r.planned_start, r.planned_end))}</td>
                         <td className="td-reason">{r.reason}</td>
                         <td><span className={`status-chip ${statusClass[r.status]}`}>{statusLabels[r.status]}</span></td>
                         <td>
