@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "check:predeploy": "npm run lint && npm run build",
+    "check:calc": "node src/lib/attendance-calc.check.ts",
+    "check:predeploy": "npm run lint && npm run check:calc && npm run build",
     "check:api": "curl -fsS http://localhost:3000/api/health",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down"

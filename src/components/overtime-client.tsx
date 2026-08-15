@@ -2,6 +2,7 @@
 
 import { useState, useEffect, type FormEvent } from "react";
 import type { OvertimeRequest, OvertimeStatus } from "@/types/overtime";
+import { calcOvertimeDuration, formatMinutes } from "@/lib/attendance-calc";
 
 const USER_NAME_KEY = "kintai_user_name";
 
@@ -191,6 +192,7 @@ export function OvertimeClient({ initialRequests }: OvertimeClientProps) {
                   <th>残業日</th>
                   <th>開始</th>
                   <th>終了</th>
+                  <th>予定時間</th>
                   <th>理由</th>
                   <th>状態</th>
                   <th>承認者</th>
@@ -204,6 +206,7 @@ export function OvertimeClient({ initialRequests }: OvertimeClientProps) {
                     <td>{r.request_date}</td>
                     <td>{r.planned_start}</td>
                     <td>{r.planned_end}</td>
+                    <td>{formatMinutes(calcOvertimeDuration(r.planned_start, r.planned_end))}</td>
                     <td className="td-reason">{r.reason}</td>
                     <td>
                       <span className={`status-chip ${statusClass[r.status]}`}>

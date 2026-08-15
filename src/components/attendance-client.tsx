@@ -3,8 +3,9 @@
 import { Fragment, useMemo, useState, useEffect, useRef, type FormEvent } from "react";
 import type { AttendanceRecord, AttendanceStatus, AttendanceEvent, AttendanceEventType } from "@/types/attendance";
 import type { PaidLeaveSummary } from "@/types/rules";
+import type { OvertimeRequest } from "@/types/overtime";
 import { AttendanceCalendar } from "@/components/attendance-calendar";
-import { calcWork, formatMinutes } from "@/lib/attendance-calc";
+import { calcWork, calcOvertimeDuration, formatMinutes } from "@/lib/attendance-calc";
 import { detectLateEarly, type StandardWorkTimes } from "@/lib/late-early";
 import type { SystemRule } from "@/types/rules";
 
@@ -90,6 +91,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const [activeTab, setActiveTab] = useState<"stamp" | "calendar" | "history">("stamp");
   const [showManualForm, setShowManualForm] = useState(false);
   const [leaveBalance, setLeaveBalance] = useState<PaidLeaveSummary | null>(null);
+  const [overtimeRequests, setOvertimeRequests] = useState<OvertimeRequest[]>([]);
   const [currentTime, setCurrentTime] = useState<string>("");
   const [todayEvents, setTodayEvents] = useState<AttendanceEvent[]>([]);
   const [selectedWorkType, setSelectedWorkType] = useState<"present" | "remote">("present");
@@ -127,6 +129,7 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
   const monthEventsFetchGen = useRef(0);
   const currentMonthEventsFetchGen = useRef(0);
   const leaveFetchGen = useRef(0);
+  const overtimeFetchGen = useRef(0);
 
   // ユーザー管理に登録されたユーザー一覧を取得
   useEffect(() => {
@@ -208,6 +211,21 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
       .catch(() => {
         if (gen !== leaveFetchGen.current) return;
         setLeaveBalance(null);
+      });
+  }, [userName]);
+
+  useEffect(() => {
+    if (!userName) { setOvertimeRequests([]); return; }
+    const gen = ++overtimeFetchGen.current;
+    void fetch(`/api/overtime?userName=${encodeURIComponent(userName)}`)
+      .then((r) => r.json())
+      .then((d: { requests?: OvertimeRequest[] }) => {
+        if (gen !== overtimeFetchGen.current) return;
+        setOvertimeRequests(d.requests ?? []);
+      })
+      .catch(() => {
+        if (gen !== overtimeFetchGen.current) return;
+        setOvertimeRequests([]);
       });
   }, [userName]);
 
@@ -484,6 +502,9 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
     const events = currentMonthEventMap[r.work_date] ?? [];
     return sum + calcWork(r.start_time, r.end_time, events, r.overtime_start).overtime;
   }, 0);
+  const approvedOvertimeRequestMinutes = overtimeRequests
+    .filter((r) => r.status === "approved" && r.request_date.startsWith(monthPrefix))
+    .reduce((sum, r) => sum + calcOvertimeDuration(r.planned_start, r.planned_end), 0);
   const otThresholdMinutes = otThresholdHours * 60;
   const otRatio = otThresholdMinutes > 0 ? monthlyOvertimeMinutes / otThresholdMinutes : 0;
   const otAlertLevel: "none" | "warn" | "danger" =
@@ -901,6 +922,11 @@ export function AttendanceClient({ initialRecords }: AttendanceClientProps) {
               <strong className={monthlyOvertimeMinutes > 0 ? "overtime-warn" : ""}>
                 {formatMinutes(monthlyOvertimeMinutes)}
               </strong>
+            </article>
+            <article className="summary-card">
+              <span className="summary-label">当月の承認済み残業予定時間</span>
+              <strong>{formatMinutes(approvedOvertimeRequestMinutes)}</strong>
+              <span className="summary-sub">打刻実績とは別枠の申請ベース集計です</span>
             </article>
             <article className="summary-card">
               <span className="summary-label">当月のリモート勤務</span>
